@@ -35,7 +35,7 @@ namespace TSMasconInput
         static TASCUtils()
         {
             // Xmlファイル読み込み（只讀一次，超快！）
-            SpeedLimitList = LoadXmlData(@"Xml\SpeedLimit.xml", element => new SpeedLimitClass
+            SpeedLimitList = LoadXmlData(@"libraries\Xml\SpeedLimit.xml", element => new SpeedLimitClass
             {
                 Direction = element.Element("Direction")?.Value ?? "",
                 StartPos = float.TryParse(element.Element("StartPos")?.Value, out float sp) ? sp : 0f,
@@ -45,7 +45,7 @@ namespace TSMasconInput
                 NextStopPosName = element.Element("NextStopPosName")?.Value ?? ""
             });
 
-            StopPositionOffsetList = LoadXmlData(@"Xml\StopPositionOffset.xml", element => new StopPositionOffsetClass
+            StopPositionOffsetList = LoadXmlData(@"libraries\Xml\StopPositionOffset.xml", element => new StopPositionOffsetClass
             {
                 Direction = element.Element("Direction")?.Value ?? "",
                 StationName = element.Element("StationName")?.Value ?? "",
