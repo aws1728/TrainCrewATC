@@ -1,7 +1,9 @@
 ﻿// 檔案名：TASCUtils.cs
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using TrainCrew;
@@ -35,7 +37,7 @@ namespace TSMasconInput
         static TASCUtils()
         {
             // Xmlファイル読み込み（只讀一次，超快！）
-            SpeedLimitList = LoadXmlData(@"libraries\Xml\SpeedLimit.xml", element => new SpeedLimitClass
+            SpeedLimitList = LoadXmlData("TSMasconInput.libraries.Xml.SpeedLimit.xml", element => new SpeedLimitClass
             {
                 Direction = element.Element("Direction")?.Value ?? "",
                 StartPos = float.TryParse(element.Element("StartPos")?.Value, out float sp) ? sp : 0f,
@@ -45,7 +47,7 @@ namespace TSMasconInput
                 NextStopPosName = element.Element("NextStopPosName")?.Value ?? ""
             });
 
-            StopPositionOffsetList = LoadXmlData(@"libraries\Xml\StopPositionOffset.xml", element => new StopPositionOffsetClass
+            StopPositionOffsetList = LoadXmlData("TSMasconInput.libraries.Xml.StopPositionOffset.xml", element => new StopPositionOffsetClass
             {
                 Direction = element.Element("Direction")?.Value ?? "",
                 StationName = element.Element("StationName")?.Value ?? "",
@@ -64,11 +66,26 @@ namespace TSMasconInput
         /// <summary>
         /// XmlData読み込みメソッド
         /// </summary>
-        public static List<T> LoadXmlData<T>(string filePath, Func<XElement, T> selector)
+        /// 改寫讀取方法，從 Assembly 讀取 Stream
+        public static List<T> LoadXmlData<T>(string resourceName, Func<XElement, T> selector)
         {
             try
             {
-                return XElement.Load(filePath).Elements().Select(selector).ToList();
+                var assembly = Assembly.GetExecutingAssembly();
+
+                // 除錯小技巧：如果你發現讀不到，可以取消下面這行的註解，看看所有資源名稱是什麼
+                // string[] names = assembly.GetManifestResourceNames(); 
+
+                using (Stream stream = assembly.GetManifestResourceStream(resourceName))
+                {
+                    if (stream == null)
+                    {
+                        // 找不到資源時，回傳空列表，避免當機
+                        return new List<T>();
+                    }
+
+                    return XElement.Load(stream).Elements().Select(selector).ToList();
+                }
             }
             catch
             {
