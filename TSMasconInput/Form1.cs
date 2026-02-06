@@ -14,16 +14,13 @@ namespace TSMasconInput
     {
         // === 1. ESP32 連線變數 ===
         SerialPort port;
-        // 移除 lastStr，改用 StringBuilder 緩衝區來處理斷裂的資料
         private StringBuilder serialBuffer = new StringBuilder();
 
-        // 新增變數來儲存 ESP32 目前的檔位，供全域存取
+        // 儲存 ESP32 目前的檔位
         private int currentEsp32Notch = 0;
-
-        // 新增：用來記錄最後一次有效讀取到的 Raw Gear，防止重複更新
         private int lastProcessedEsp32Gear = -999;
 
-        // === 2. ESP32 檔位配置 (必須與 Arduino 一致) ===
+        // === 2. 檔位配置 ===
         const int BRAKE_STEPS = 6;
         const bool HAS_EB = true;
         const bool HAS_HOLD = true;
@@ -39,7 +36,12 @@ namespace TSMasconInput
         private TascBehaviorState currentTascBehavior = TascBehaviorState.Idle;
         private int tascStationNotch = 0;
 
-        // 效能優化：UI 更新計數器
+        // === 4. 加速度計算變數 ===
+        private double _lastAccelSpeed = 0.0;
+        private DateTime _lastAccelTime = DateTime.Now;
+        private double _currentAccel = 0.0;
+
+        // UI 更新計數器 (降頻用)
         private int uiUpdateCounter = 0;
 
         private const double MY_MAX_BRAKE_DECEL_KMPHPS = 3.7;
@@ -57,7 +59,6 @@ namespace TSMasconInput
             this.TopMost = true;
 
             currentEsp32Notch = GEAR_N_INDEX;
-
             tasc = new SimpleTASC(MY_MAX_BRAKE_DECEL_KMPHPS, MY_BRAKE_NOTCHES);
 
             // 按鈕初始化
@@ -94,11 +95,11 @@ namespace TSMasconInput
 
             // Timer 設定
             tim.Tick += Tim_Tick;
-            tim.Interval = 15; // 保持快速，用於計算 TASC 和發送指令給遊戲
+            tim.Interval = 15;
             tim.Start();
         }
 
-        // === ESP32 連線 (修改為事件驅動) ===
+        // === ESP32 連線 (事件驅動) ===
         private void btn_open_Click(object sender, EventArgs e)
         {
             try
@@ -111,7 +112,7 @@ namespace TSMasconInput
                 port.NewLine = "\n";
                 port.Parity = Parity.None;
 
-                // [關鍵修改] 註冊資料接收事件，不再依賴 Timer 讀取
+                // 註冊資料接收事件
                 port.DataReceived += Port_DataReceived;
 
                 port.Open();
@@ -127,16 +128,12 @@ namespace TSMasconInput
             }
         }
 
-        // [關鍵修改] 這是背景執行緒，專門負責收資料，不會漏接
         private void Port_DataReceived(object sender, SerialDataReceivedEventArgs e)
         {
             if (port == null || !port.IsOpen) return;
-
             try
             {
                 string data = port.ReadExisting();
-                // 因為這是背景執行緒，我們不能直接操作 UI 或某些變數
-                // 但 StringBuilder 是可以簡單操作的，或者我們用 lock
                 lock (serialBuffer)
                 {
                     serialBuffer.Append(data);
@@ -146,21 +143,13 @@ namespace TSMasconInput
             catch { }
         }
 
-        // [關鍵修改] 解析緩衝區資料
         private void ProcessBuffer()
         {
             string content = serialBuffer.ToString();
-
-            // 如果沒有換行符號，表示指令還沒傳完，先不動
             if (content.IndexOf('\n') == -1) return;
 
             string[] lines = content.Split('\n');
-
-            // 處理所有完整的行
-            // 最後一行可能是殘缺的，要留給下次
             int validLinesCount = lines.Length - 1;
-
-            // 我們只需要「最後一個有效」的 CMD 指令
             int foundGear = -999;
 
             for (int i = 0; i < validLinesCount; i++)
@@ -177,26 +166,15 @@ namespace TSMasconInput
                 }
             }
 
-            // 更新緩衝區：只保留最後那段殘缺的 (或者如果是空的就清空)
             serialBuffer.Remove(0, content.LastIndexOf('\n') + 1);
 
-            // 如果有找到新的檔位，更新變數
             if (foundGear != -999)
             {
-                // 因為我們只更新變數，不操作 UI，所以這裡不需要 Invoke，很高效
-                // 計算對應的遊戲檔位
                 int gameNotch = ConvertEsp32ToGameNotch(foundGear);
-
-                // 如果跟上次不一樣，才更新 (防止重複觸發)
                 if (lastProcessedEsp32Gear != foundGear)
                 {
                     currentEsp32Notch = gameNotch;
                     lastProcessedEsp32Gear = foundGear;
-
-                    // 這裡可以選擇：
-                    // 1. 直接發送給遊戲 (反應最快)
-                    // 2. 等 Timer 來發送 (最安全)
-                    // 為了反應速度，我們直接發送，但要小心執行緒安全，TrainCrewInput 應該是安全的
                     SetManualNotch(gameNotch);
                 }
             }
@@ -208,7 +186,6 @@ namespace TSMasconInput
             {
                 try
                 {
-                    // 移除事件監聽
                     port.DataReceived -= Port_DataReceived;
                     if (port.IsOpen) port.Close();
                     port.Dispose();
@@ -220,9 +197,7 @@ namespace TSMasconInput
             if (btn_close != null) btn_close.Enabled = false;
         }
 
-        // ... (中間的 TASC 按鈕邏輯 SetTascBehavior, btn_tasc_toggle... 保持不變) ...
-        // 為了節省篇幅，這裡省略中間沒改動的按鈕程式碼，請直接保留你原本的
-        // ...
+        // ... TASC 狀態切換邏輯 ...
         private void SetTascBehavior(TascBehaviorState newBehavior)
         {
             if (this.labelTascStatus == null) return;
@@ -288,20 +263,28 @@ namespace TSMasconInput
 
         StringBuilder sb = new StringBuilder();
 
+        // === 主迴圈 ===
         private void Tim_Tick(object sender, EventArgs e)
         {
-            // [修改] 1. ESP32 輸入已經移到 DataReceived 事件處理了，這裡不需要再 ReadExisting
-
-            // 2. 獲取遊戲狀態
             var state = TrainCrewInput.GetTrainState();
             if (state == null) return;
+
+            // 1. 加速度計算
+            double timeDelta = (DateTime.Now - _lastAccelTime).TotalSeconds;
+            if (timeDelta >= 0.25)
+            {
+                double speedDelta = state.Speed - _lastAccelSpeed;
+                _currentAccel = speedDelta / timeDelta;
+                _lastAccelSpeed = state.Speed;
+                _lastAccelTime = DateTime.Now;
+            }
 
             double currentSpeed = state.Speed;
             double distanceToStop = state.nextStaDistance + TASC_STOP_ADJUST_M;
             double currentGrade = state.gradient;
             int manualPowerNotch = state.Pnotch;
 
-            // 3. TASC 邏輯 (保持你修改後的版本)
+            // 2. TASC 邏輯
             bool manualPowerOverride = (manualPowerNotch > 0);
 
             switch (currentTascBehavior)
@@ -338,7 +321,7 @@ namespace TSMasconInput
                     break;
             }
 
-            // 4. 計算限速與儀表 (ATC 準備)
+            // 3. 計算速限與目標 (用於儀表顯示與 ATC)
             float fStopPositionOffset = TASCUtils.GetStopPositionOffset(state);
             float remainigDistance = state.nextStaDistance;
             float dist = remainigDistance > 0.0f ? remainigDistance : 0.0f;
@@ -351,14 +334,10 @@ namespace TSMasconInput
             float safeSpeedNextXml = 999f;
 
             if (state.nextSpeedLimit >= 0.0f && state.nextSpeedLimitDistance > 0)
-            {
                 safeSpeedNextGame = (float)tasc.GetIdealSpeedForTarget(state.nextSpeedLimitDistance, state.nextSpeedLimit, state.gradient);
-            }
 
             if (xmlLimitSpeed < 120f && xmlLimitDistance > 0)
-            {
                 safeSpeedNextXml = (float)tasc.GetIdealSpeedForTarget(xmlLimitDistance, xmlLimitSpeed, state.gradient);
-            }
 
             float limitToShow = safeSpeedCurrent;
             string dynamicSpeedTarget_Reason = "CurrentLimit";
@@ -368,33 +347,76 @@ namespace TSMasconInput
 
             float gaugeTargetValue = (limitToShow >= 999f) ? -1f : limitToShow;
 
-            // 5. ATC 煞車計算
+            // 4. ATC 邏輯
             int finalAtcNotch = 0;
             if (isAtcMasterOn && limitToShow < 999f)
             {
-                if (currentSpeed > (limitToShow + ATC_BUFFER_KMPH))
-                {
-                    finalAtcNotch = tasc.GetAtoNotchForATC(currentSpeed, limitToShow, currentGrade);
-                }
+                finalAtcNotch = tasc.GetAtoNotchForATC(currentSpeed, limitToShow, currentGrade, state.Pnotch);
             }
 
-            // 6. 最終決策 (ATO Output)
+            // 5. 輸出檔位
             int effectiveTascNotch = isTascMasterOn ? tascStationNotch : 0;
             int effectiveAtcNotch = isAtcMasterOn ? finalAtcNotch : 0;
             int finalOutputNotch = Math.Min(effectiveTascNotch, effectiveAtcNotch);
             TrainCrewInput.SetATO_Notch(finalOutputNotch);
 
-            // [關鍵修改] 7. 限制 UI 更新頻率 (提升輸入流暢度)
-            // 這裡設定為每 5 個 Tick 更新一次 UI (約 75ms~100ms 一次)，人眼感覺不到延遲，但能大幅減輕 CPU 負擔
+            // 6. UI 更新與 ESP32 通訊 (降頻處理)
             uiUpdateCounter++;
-            if (uiUpdateCounter >= 5)
+            if (uiUpdateCounter >= 5) // 約 75ms 更新一次
             {
                 uiUpdateCounter = 0;
                 UpdateUI(state, limitToShow, dynamicSpeedTarget_Reason, finalOutputNotch, effectiveTascNotch, effectiveAtcNotch, safeSpeedNextGame, safeSpeedNextXml, xmlLimitSpeed, xmlLimitDistance, gaugeTargetValue);
+
+                // 🔥🔥🔥 [修改處] 發送儀表板專用數據包 🔥🔥🔥
+                if (port != null && port.IsOpen)
+                {
+                    try
+                    {
+                        // A. 速度
+                        float valSpeed = (float)state.Speed;
+
+                        // B. 藍色標記 (TASC 目標)
+                        float valBlue = -1;
+                        if (currentTascBehavior == TascBehaviorState.Braking)
+                            valBlue = (float)tasc.LastExpectedSpeedKmph;
+
+                        // C. 綠色標記 (前方預告)
+                        float valGreen = -1;
+                        // 重新判斷綠色標記的邏輯 (參照 UpdateUI)
+                        bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
+                        bool isGameValid = (state.nextSpeedLimit >= 0 && state.nextSpeedLimit < 120f && state.nextSpeedLimitDistance > 0);
+
+                        if (dynamicSpeedTarget_Reason == "NextGame") valGreen = state.nextSpeedLimit;
+                        else if (dynamicSpeedTarget_Reason == "NextXml") valGreen = xmlLimitSpeed;
+                        else if (isXmlValid && isGameValid)
+                            valGreen = (xmlLimitDistance <= state.nextSpeedLimitDistance) ? xmlLimitSpeed : state.nextSpeedLimit;
+                        else if (isXmlValid) valGreen = xmlLimitSpeed;
+                        else if (isGameValid) valGreen = state.nextSpeedLimit;
+
+                        // D. 紅色標記 (目前速限)
+                        float valRed = (limitToShow >= 999f) ? -1 : limitToShow;
+
+                        // E. 準備檔位字串 (轉為英文以防亂碼)
+                        string gearStr = "N";
+                        if (state.Bnotch == 8) gearStr = "EB";
+                        else if (state.Bnotch > 1) gearStr = "B" + (state.Bnotch - 1);
+                        else if (state.Bnotch == 1) gearStr = "HOLD"; // 抑速
+                        else if (state.Pnotch > 0) gearStr = "P" + state.Pnotch;
+                        else gearStr = "N";
+
+                        // F. 打包發送 (格式 G:速度,藍,綠,紅,檔位)
+                        // 例如: G:85.5,80.0,-1,90.0,P4
+                        string cmd = string.Format("G:{0:0.0},{1:0.0},{2:0.0},{3:0.0},{4}",
+                            valSpeed, valBlue, valGreen, valRed, gearStr);
+
+                        port.WriteLine(cmd);
+                    }
+                    catch { }
+                }
+                // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
             }
         }
 
-        // 把 UI 更新邏輯抽離出來，保持 Tim_Tick 乾淨
         private void UpdateUI(TrainState state, float limitToShow, string dynamicSpeedTarget_Reason, int finalOutputNotch, int effectiveTascNotch, int effectiveAtcNotch, float safeSpeedNextGame, float safeSpeedNextXml, float xmlLimitSpeed, float xmlLimitDistance, float gaugeTargetValue)
         {
             // 儀表更新
@@ -432,7 +454,7 @@ namespace TSMasconInput
             }
             catch { }
 
-            // 文字更新 1
+            // 文字更新
             try
             {
                 if (state.CarStates != null && state.CarStates.Count > 0)
@@ -445,11 +467,12 @@ namespace TSMasconInput
             }
             catch { }
 
-            // 文字更新 2 (Label1)
             try
             {
                 sb.Clear();
                 sb.AppendLine("速度：" + state.Speed.ToString("0.0") + "km/h");
+                string accelSign = _currentAccel > 0 ? "+" : "";
+                sb.AppendLine("加速度：" + accelSign + _currentAccel.ToString("0.00") + "km/h/s");
                 if (currentTascBehavior == TascBehaviorState.Braking)
                     sb.AppendLine("TASC理想：" + tasc.LastExpectedSpeedKmph.ToString("0.0") + "km/h");
 
@@ -474,7 +497,6 @@ namespace TSMasconInput
             }
             catch { label1.Text = "Info Error"; }
 
-            // 文字更新 3 (LabelPnl)
             try
             {
                 sb.Clear();
@@ -494,7 +516,6 @@ namespace TSMasconInput
             }
             catch { labelPnl.Text = "Panel Error"; }
 
-            // 文字更新 4 (LabelATS)
             try
             {
                 sb.Clear();
@@ -512,7 +533,6 @@ namespace TSMasconInput
             }
             catch { labelATS.Text = "ATS Error"; }
 
-            // 文字更新 5 (Label2)
             try
             {
                 sb.Clear();
@@ -536,7 +556,6 @@ namespace TSMasconInput
             }
             catch { label2.Text = "Drive Info Error"; }
 
-            // 文字更新 6 (Label 建議速度)
             try
             {
                 sb.Clear();
@@ -558,7 +577,6 @@ namespace TSMasconInput
             }
             catch { }
 
-            // 文字更新 7 (LabelNotch)
             try
             {
                 string atoLabel = "ATO: ";
@@ -575,7 +593,7 @@ namespace TSMasconInput
             catch { }
         }
 
-        // === 輔助函式保持不變 ===
+        // === 輔助函式 ===
         private int ConvertEsp32ToGameNotch(int rawGear)
         {
             if (rawGear > GEAR_N_INDEX) return rawGear - GEAR_N_INDEX;
