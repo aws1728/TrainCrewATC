@@ -220,7 +220,7 @@
             this.Margin = new System.Windows.Forms.Padding(4, 5, 4, 5);
             this.MaximizeBox = false;
             this.Name = "Form1";
-            this.Text = "TSマスコン入力（仮）";
+            this.Text = "TrainCrewマスコン入力";
             this.ResumeLayout(false);
             this.PerformLayout();
 
