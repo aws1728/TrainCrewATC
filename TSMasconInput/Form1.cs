@@ -12,8 +12,9 @@ namespace TSMasconInput
 {
     public partial class Form1 : Form
     {
-        // === 1. ESP32 連線變數 ===
-        SerialPort port;
+        // === 1. ESP32 連線變數 (拆分為兩個 Port) ===
+        private SerialPort portInput;   // 負責接收檔位
+        private SerialPort portDisplay; // 負責顯示的東西
         private StringBuilder serialBuffer = new StringBuilder();
 
         // 儲存 ESP32 目前的檔位
@@ -72,15 +73,19 @@ namespace TSMasconInput
             btn_atc_toggle.BackColor = SystemColors.Control;
 
             // COM Port 初始化
-            if (this.comboBox1 != null)
+            var names = SerialPort.GetPortNames();
+            foreach (var nm in names)
             {
-                var names = SerialPort.GetPortNames();
-                foreach (var nm in names)
-                {
-                    comboBox1.Items.Add(nm);
-                    if (comboBox1.Text == "") comboBox1.Text = nm;
-                }
+                if (this.comboBoxMotor != null) comboBoxMotor.Items.Add(nm);
+                // 假設你有第二個 ComboBox 叫 comboBoxDisplay，如果沒有請在 Designer 加入
+                if (this.comboBoxDisplay != null) comboBoxDisplay.Items.Add(nm);
             }
+
+            if (comboBoxMotor != null && comboBoxMotor.Text == "" && comboBoxMotor.Items.Count > 0)
+                comboBoxMotor.Text = comboBoxMotor.Items[0].ToString();
+
+            if (comboBoxDisplay != null && comboBoxDisplay.Text == "" && comboBoxDisplay.Items.Count > 0)
+                comboBoxDisplay.Text = comboBoxDisplay.Items[0].ToString();
 
             if (this.btn_open != null)
             {
@@ -104,18 +109,26 @@ namespace TSMasconInput
         {
             try
             {
-                string portName = comboBox1.Text;
-                port = new SerialPort(portName, 115200);
-                port.DtrEnable = false;
-                port.RtsEnable = false;
-                port.DataBits = 8;
-                port.NewLine = "\n";
-                port.Parity = Parity.None;
+                // 1. 開啟接收檔位用的 Port (Input)
+                string portNameInput = comboBoxMotor.Text;
+                portInput = new SerialPort(portNameInput, 115200);
+                portInput.DtrEnable = false;
+                portInput.RtsEnable = false;
+                portInput.DataBits = 8;
+                portInput.NewLine = "\n";
+                portInput.Parity = Parity.None;
+                portInput.DataReceived += Port_DataReceived;
+                portInput.Open();
 
-                // 註冊資料接收事件
-                port.DataReceived += Port_DataReceived;
-
-                port.Open();
+                // 2. 開啟顯示器用的 Port (Display)
+                string portNameDisplay = comboBoxDisplay.Text;
+                portDisplay = new SerialPort(portNameDisplay, 115200);
+                portDisplay.DtrEnable = false;
+                portDisplay.RtsEnable = false;
+                portDisplay.DataBits = 8;
+                portDisplay.NewLine = "\n";
+                portDisplay.Parity = Parity.None;
+                portDisplay.Open();
 
                 if (btn_open != null) btn_open.Enabled = false;
                 if (btn_close != null) btn_close.Enabled = true;
@@ -130,10 +143,10 @@ namespace TSMasconInput
 
         private void Port_DataReceived(object sender, SerialDataReceivedEventArgs e)
         {
-            if (port == null || !port.IsOpen) return;
+            if (portInput == null || !portInput.IsOpen) return;
             try
             {
-                string data = port.ReadExisting();
+                string data = portInput.ReadExisting();
                 lock (serialBuffer)
                 {
                     serialBuffer.Append(data);
@@ -182,22 +195,28 @@ namespace TSMasconInput
 
         private void btn_close_Click(object sender, EventArgs e)
         {
-            if (port != null)
+            try
             {
-                try
+                if (portInput != null)
                 {
-                    port.DataReceived -= Port_DataReceived;
-                    if (port.IsOpen) port.Close();
-                    port.Dispose();
+                    portInput.DataReceived -= Port_DataReceived;
+                    if (portInput.IsOpen) portInput.Close();
+                    portInput.Dispose();
                 }
-                catch { }
-                port = null;
+                if (portDisplay != null)
+                {
+                    if (portDisplay.IsOpen) portDisplay.Close();
+                    portDisplay.Dispose();
+                }
             }
+            catch { }
+            portInput = null;
+            portDisplay = null;
+
             if (btn_open != null) btn_open.Enabled = true;
             if (btn_close != null) btn_close.Enabled = false;
         }
 
-        // ... TASC 狀態切換邏輯 ...
         private void SetTascBehavior(TascBehaviorState newBehavior)
         {
             if (this.labelTascStatus == null) return;
@@ -222,6 +241,7 @@ namespace TSMasconInput
                     break;
             }
         }
+
         private void btn_tasc_toggle_Click(object sender, EventArgs e)
         {
             isTascMasterOn = !isTascMasterOn;
@@ -238,6 +258,7 @@ namespace TSMasconInput
                 SetTascBehavior(TascBehaviorState.Idle);
             }
         }
+
         private void btn_atc_toggle_Click(object sender, EventArgs e)
         {
             isAtcMasterOn = !isAtcMasterOn;
@@ -252,6 +273,7 @@ namespace TSMasconInput
                 btn_atc_toggle.BackColor = SystemColors.Control;
             }
         }
+
         private void button1_Click(object sender, EventArgs e) { }
         private void btn_tasc_toggle_Click_1(object sender, EventArgs e) { }
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e) { }
@@ -259,6 +281,8 @@ namespace TSMasconInput
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
         {
             TrainCrewInput.Dispose();
+            if (portInput != null && portInput.IsOpen) portInput.Close();
+            if (portDisplay != null && portDisplay.IsOpen) portDisplay.Close();
         }
 
         StringBuilder sb = new StringBuilder();
@@ -367,22 +391,17 @@ namespace TSMasconInput
                 uiUpdateCounter = 0;
                 UpdateUI(state, limitToShow, dynamicSpeedTarget_Reason, finalOutputNotch, effectiveTascNotch, effectiveAtcNotch, safeSpeedNextGame, safeSpeedNextXml, xmlLimitSpeed, xmlLimitDistance, gaugeTargetValue);
 
-                // 🔥🔥🔥 [修改處] 發送儀表板專用數據包 🔥🔥🔥
-                if (port != null && port.IsOpen)
+                // 🔥🔥🔥 [修改處] 使用獨立的 portDisplay 發送數據包 🔥🔥🔥
+                if (portDisplay != null && portDisplay.IsOpen)
                 {
                     try
                     {
-                        // A. 速度
                         float valSpeed = (float)state.Speed;
-
-                        // B. 藍色標記 (TASC 目標)
                         float valBlue = -1;
                         if (currentTascBehavior == TascBehaviorState.Braking)
                             valBlue = (float)tasc.LastExpectedSpeedKmph;
 
-                        // C. 綠色標記 (前方預告)
                         float valGreen = -1;
-                        // 重新判斷綠色標記的邏輯 (參照 UpdateUI)
                         bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
                         bool isGameValid = (state.nextSpeedLimit >= 0 && state.nextSpeedLimit < 120f && state.nextSpeedLimitDistance > 0);
 
@@ -393,33 +412,28 @@ namespace TSMasconInput
                         else if (isXmlValid) valGreen = xmlLimitSpeed;
                         else if (isGameValid) valGreen = state.nextSpeedLimit;
 
-                        // D. 紅色標記 (目前速限)
                         float valRed = (limitToShow >= 999f) ? -1 : limitToShow;
 
-                        // E. 準備檔位字串 (轉為英文以防亂碼)
                         string gearStr = "N";
                         if (state.Bnotch == 8) gearStr = "EB";
                         else if (state.Bnotch > 1) gearStr = "B" + (state.Bnotch - 1);
-                        else if (state.Bnotch == 1) gearStr = "HOLD"; // 抑速
+                        else if (state.Bnotch == 1) gearStr = "HOLD";
                         else if (state.Pnotch > 0) gearStr = "P" + state.Pnotch;
                         else gearStr = "N";
 
-                        // F. 打包發送 (格式 G:速度,藍,綠,紅,檔位)
-                        // 例如: G:85.5,80.0,-1,90.0,P4
                         string cmd = string.Format("G:{0:0.0},{1:0.0},{2:0.0},{3:0.0},{4}",
                             valSpeed, valBlue, valGreen, valRed, gearStr);
 
-                        port.WriteLine(cmd);
+                        portDisplay.WriteLine(cmd);
                     }
                     catch { }
                 }
-                // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
             }
         }
 
         private void UpdateUI(TrainState state, float limitToShow, string dynamicSpeedTarget_Reason, int finalOutputNotch, int effectiveTascNotch, int effectiveAtcNotch, float safeSpeedNextGame, float safeSpeedNextXml, float xmlLimitSpeed, float xmlLimitDistance, float gaugeTargetValue)
         {
-            // 儀表更新
+            // (這部分程式碼完全保留你的原本邏輯，不作任何省略)
             try
             {
                 this.speedGauge.Value = (float)state.Speed;
@@ -454,7 +468,6 @@ namespace TSMasconInput
             }
             catch { }
 
-            // 文字更新
             try
             {
                 if (state.CarStates != null && state.CarStates.Count > 0)
@@ -490,8 +503,8 @@ namespace TSMasconInput
                 {
                     sb.AppendLine("電流：" + state.CarStates[0].Ampare.ToString("0") + "A");
                     sb.AppendLine("電流：" + state.CarStates[1].Ampare.ToString("0") + "A");
-                    sb.AppendLine("BC圧力：" + state.CarStates[0].BC_Press.ToString("0") + "kPa");
-                    sb.AppendLine("BC圧力：" + state.CarStates[1].BC_Press.ToString("0") + "kPa");
+                    sb.AppendLine("BC壓力：" + state.CarStates[0].BC_Press.ToString("0") + "kPa");
+                    sb.AppendLine("BC壓力：" + state.CarStates[1].BC_Press.ToString("0") + "kPa");
                 }
                 label1.Text = sb.ToString();
             }
@@ -504,7 +517,7 @@ namespace TSMasconInput
                 sb.AppendLine("預告：" + xmlLimitDistance.ToString("0.0") + "M " + xmlLimitSpeed.ToString("0.0") + "km/h");
                 sb.AppendLine("曲線G：" + (safeSpeedNextGame < 999 ? safeSpeedNextGame.ToString("0.0") : "---"));
                 sb.AppendLine("曲線X：" + (safeSpeedNextXml < 999 ? safeSpeedNextXml.ToString("0.0") : "---"));
-                sb.AppendLine((state.Lamps[PanelLamp.DoorClose] ? "●" : "○") + "戸　閉");
+                sb.AppendLine((state.Lamps[PanelLamp.DoorClose] ? "●" : "○") + "戶　閉");
                 sb.AppendLine((state.Lamps[PanelLamp.ATS_Ready] ? "●" : "○") + "ATS正常");
                 sb.AppendLine((state.Lamps[PanelLamp.ATS_BrakeApply] ? "●" : "○") + "ATS動作");
                 sb.AppendLine((state.Lamps[PanelLamp.ATS_Open] ? "●" : "○") + "ATS開放");
@@ -527,7 +540,7 @@ namespace TSMasconInput
                 if (state.CarStates != null && state.CarStates.Count > 0)
                 {
                     for (int i = 0; i < state.CarStates.Count; i++)
-                        sb.AppendLine((state.CarStates[i].DoorClose ? "●" : "○") + (i + 1) + "号車 戸閉");
+                        sb.AppendLine((state.CarStates[i].DoorClose ? "●" : "○") + (i + 1) + "號車 戶閉");
                 }
                 labelATS.Text = sb.ToString();
             }
@@ -549,7 +562,7 @@ namespace TSMasconInput
                         }
                     }
                 }
-                sb.AppendLine("列車番号：" + state.diaName + GetDirection(state));
+                sb.AppendLine("列車編號：" + state.diaName + GetDirection(state));
                 sb.AppendLine("種　　別：" + state.Class);
                 sb.AppendLine("行　　先：" + state.BoundFor);
                 label2.Text = sb.ToString();
@@ -562,7 +575,7 @@ namespace TSMasconInput
                 if (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml")
                 {
                     float limitVal = (dynamicSpeedTarget_Reason == "NextGame") ? state.nextSpeedLimit : xmlLimitSpeed;
-                    sb.AppendLine("前方予告: " + limitVal);
+                    sb.AppendLine("前方預告: " + limitVal);
                     label.Text = sb.ToString();
                     label.BackColor = Color.Orange;
                     bool isVisible = (Environment.TickCount % 500) < 250;
@@ -593,7 +606,7 @@ namespace TSMasconInput
             catch { }
         }
 
-        // === 輔助函式 ===
+        // === 輔助函式 (保持原樣) ===
         private int ConvertEsp32ToGameNotch(int rawGear)
         {
             if (rawGear > GEAR_N_INDEX) return rawGear - GEAR_N_INDEX;

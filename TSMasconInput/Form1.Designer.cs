@@ -27,7 +27,8 @@
             this.labelTascStatus = new System.Windows.Forms.Label();
             this.btn_atc_toggle = new System.Windows.Forms.Button();
             this.label = new System.Windows.Forms.Label();
-            this.comboBox1 = new System.Windows.Forms.ComboBox();
+            this.comboBoxMotor = new System.Windows.Forms.ComboBox();
+            this.comboBoxDisplay = new System.Windows.Forms.ComboBox();
             this.btn_open = new System.Windows.Forms.Button();
             this.btn_close = new System.Windows.Forms.Button();
             this.pressureGauge = new TSMasconInput.AnalogGauge();
@@ -126,15 +127,23 @@
             this.label.TabIndex = 2;
             this.label.Text = "前方予告: 120";
             // 
-            // comboBox1
+            // comboBoxMotor
             // 
-            this.comboBox1.FormattingEnabled = true;
-            this.comboBox1.Location = new System.Drawing.Point(422, 528);
-            this.comboBox1.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-            this.comboBox1.Name = "comboBox1";
-            this.comboBox1.Size = new System.Drawing.Size(118, 26);
-            this.comboBox1.TabIndex = 2;
-            this.comboBox1.SelectedIndexChanged += new System.EventHandler(this.comboBox1_SelectedIndexChanged);
+            this.comboBoxMotor.FormattingEnabled = true;
+            this.comboBoxMotor.Location = new System.Drawing.Point(457, 528);
+            this.comboBoxMotor.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+            this.comboBoxMotor.Name = "comboBoxMotor";
+            this.comboBoxMotor.Size = new System.Drawing.Size(85, 26);
+            this.comboBoxMotor.TabIndex = 2;
+            this.comboBoxMotor.SelectedIndexChanged += new System.EventHandler(this.comboBox1_SelectedIndexChanged);
+            // 
+            // comboBoxDisplay
+            // 
+            this.comboBoxDisplay.FormattingEnabled = true;
+            this.comboBoxDisplay.Location = new System.Drawing.Point(366, 528);
+            this.comboBoxDisplay.Name = "comboBoxDisplay";
+            this.comboBoxDisplay.Size = new System.Drawing.Size(85, 26);
+            this.comboBoxDisplay.TabIndex = 3;
             // 
             // btn_open
             // 
@@ -202,7 +211,8 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 18F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(796, 563);
-            this.Controls.Add(this.comboBox1);
+            this.Controls.Add(this.comboBoxMotor);
+            this.Controls.Add(this.comboBoxDisplay);
             this.Controls.Add(this.btn_close);
             this.Controls.Add(this.btn_open);
             this.Controls.Add(this.btn_atc_toggle);
@@ -240,8 +250,9 @@
         private AnalogGauge pressureGauge;
         private System.Windows.Forms.Button btn_atc_toggle; // 新增
         // [新增] 4. 宣告控制項變數
-        private System.Windows.Forms.ComboBox comboBox1;
+        private System.Windows.Forms.ComboBox comboBoxMotor;
         private System.Windows.Forms.Button btn_open;
         private System.Windows.Forms.Button btn_close;
+        private System.Windows.Forms.ComboBox comboBoxDisplay;
     }
 }
