@@ -1,5 +1,4 @@
-﻿// 檔案名稱: Form1.cs
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO.Ports;
@@ -12,7 +11,7 @@ namespace TSMasconInput
 {
     public partial class Form1 : Form
     {
-        // === 1. ESP32 連線變數 (拆分為兩個 Port) ===
+        // === 1. ESP32 連線變數 ===
         private SerialPort portInput;   // 負責接收檔位
         private SerialPort portDisplay; // 負責顯示的東西
         private StringBuilder serialBuffer = new StringBuilder();
@@ -52,6 +51,9 @@ namespace TSMasconInput
         private const double TASC_STOP_ADJUST_M = 0.15;
         private const double ATC_BUFFER_KMPH = 0.0;
 
+        // === 5. 懸浮視窗變數 ===
+        private SpeedMoniter speedMoniterWindow;
+
         public Form1()
         {
             InitializeComponent();
@@ -73,35 +75,80 @@ namespace TSMasconInput
             btn_atc_toggle.BackColor = SystemColors.Control;
 
             // COM Port 初始化
-            var names = SerialPort.GetPortNames();
-            foreach (var nm in names)
-            {
-                if (this.comboBoxMotor != null) comboBoxMotor.Items.Add(nm);
-                // 假設你有第二個 ComboBox 叫 comboBoxDisplay，如果沒有請在 Designer 加入
-                if (this.comboBoxDisplay != null) comboBoxDisplay.Items.Add(nm);
-            }
-
-            if (comboBoxMotor != null && comboBoxMotor.Text == "" && comboBoxMotor.Items.Count > 0)
-                comboBoxMotor.Text = comboBoxMotor.Items[0].ToString();
-
-            if (comboBoxDisplay != null && comboBoxDisplay.Text == "" && comboBoxDisplay.Items.Count > 0)
-                comboBoxDisplay.Text = comboBoxDisplay.Items[0].ToString();
+            RefreshPorts();
 
             if (this.btn_open != null)
             {
                 this.btn_open.Click += new EventHandler(this.btn_open_Click);
                 this.btn_open.Enabled = true;
             }
+            // === [修改 1] 初始化斷線按鈕為「可用」狀態，作為刷新鍵 ===
             if (this.btn_close != null)
             {
                 this.btn_close.Click += new EventHandler(this.btn_close_Click);
-                this.btn_close.Enabled = false;
+                this.btn_close.Enabled = true; // 預設開啟，讓使用者可以按
+                this.btn_close.Text = "Refreah"; // 提示現在的功能是刷新
             }
+
+            // === 啟動時自動顯示 SpeedMoniter ===
+            speedMoniterWindow = new SpeedMoniter();
+            speedMoniterWindow.Show();
 
             // Timer 設定
             tim.Tick += Tim_Tick;
             tim.Interval = 15;
             tim.Start();
+        }
+
+        // === 刷新 COM Port 列表的函式 ===
+        private void RefreshPorts()
+        {
+            string lastMotor = comboBoxMotor != null ? comboBoxMotor.Text : "";
+            string lastDisplay = comboBoxDisplay != null ? comboBoxDisplay.Text : "";
+
+            if (comboBoxMotor != null) comboBoxMotor.Items.Clear();
+            if (comboBoxDisplay != null) comboBoxDisplay.Items.Clear();
+
+            // 加入 "不使用" 選項
+            if (comboBoxMotor != null) comboBoxMotor.Items.Add("控制器");
+            if (comboBoxDisplay != null) comboBoxDisplay.Items.Add("時速表");
+
+            var names = SerialPort.GetPortNames();
+            foreach (var nm in names)
+            {
+                if (comboBoxMotor != null) comboBoxMotor.Items.Add(nm);
+                if (comboBoxDisplay != null) comboBoxDisplay.Items.Add(nm);
+            }
+
+            // 恢復上次選擇或設為預設
+            if (comboBoxMotor != null)
+            {
+                if (comboBoxMotor.Items.Contains(lastMotor)) comboBoxMotor.Text = lastMotor;
+                else if (comboBoxMotor.Items.Count > 0) comboBoxMotor.SelectedIndex = 0;
+            }
+
+            if (comboBoxDisplay != null)
+            {
+                if (comboBoxDisplay.Items.Contains(lastDisplay)) comboBoxDisplay.Text = lastDisplay;
+                else if (comboBoxDisplay.Items.Count > 0) comboBoxDisplay.SelectedIndex = 0;
+            }
+        }
+
+        // === 控制 SpeedMoniter 顯示/隱藏的按鈕事件 ===
+        private void btn_monitor_toggle_Click(object sender, EventArgs e)
+        {
+            if (speedMoniterWindow == null || speedMoniterWindow.IsDisposed)
+            {
+                speedMoniterWindow = new SpeedMoniter();
+                speedMoniterWindow.Show();
+                btn_monitor_toggle.Text = "隱藏速度表";
+            }
+            else
+            {
+                speedMoniterWindow.Close();
+                speedMoniterWindow = null;
+                btn_monitor_toggle.Text = "顯示速度表";
+            }
         }
 
         // === ESP32 連線 (事件驅動) ===
@@ -111,32 +158,58 @@ namespace TSMasconInput
             {
                 // 1. 開啟接收檔位用的 Port (Input)
                 string portNameInput = comboBoxMotor.Text;
-                portInput = new SerialPort(portNameInput, 115200);
-                portInput.DtrEnable = false;
-                portInput.RtsEnable = false;
-                portInput.DataBits = 8;
-                portInput.NewLine = "\n";
-                portInput.Parity = Parity.None;
-                portInput.DataReceived += Port_DataReceived;
-                portInput.Open();
+
+                if (portNameInput != "控制器" && !string.IsNullOrEmpty(portNameInput))
+                {
+                    portInput = new SerialPort(portNameInput, 115200);
+                    portInput.DtrEnable = false;
+                    portInput.RtsEnable = false;
+                    portInput.DataBits = 8;
+                    portInput.NewLine = "\n";
+                    portInput.Parity = Parity.None;
+                    portInput.DataReceived += Port_DataReceived;
+                    portInput.Open();
+                }
+                else
+                {
+                    portInput = null;
+                }
 
                 // 2. 開啟顯示器用的 Port (Display)
                 string portNameDisplay = comboBoxDisplay.Text;
-                portDisplay = new SerialPort(portNameDisplay, 115200);
-                portDisplay.DtrEnable = false;
-                portDisplay.RtsEnable = false;
-                portDisplay.DataBits = 8;
-                portDisplay.NewLine = "\n";
-                portDisplay.Parity = Parity.None;
-                portDisplay.Open();
 
+                if (portNameDisplay != "時速表" && !string.IsNullOrEmpty(portNameDisplay))
+                {
+                    portDisplay = new SerialPort(portNameDisplay, 115200);
+                    portDisplay.DtrEnable = false;
+                    portDisplay.RtsEnable = false;
+                    portDisplay.DataBits = 8;
+                    portDisplay.NewLine = "\n";
+                    portDisplay.Parity = Parity.None;
+                    portDisplay.Open();
+                }
+                else
+                {
+                    portDisplay = null;
+                }
+
+                // 更新按鈕狀態
                 if (btn_open != null) btn_open.Enabled = false;
-                if (btn_close != null) btn_close.Enabled = true;
+
+                // === [修改 2] 連線成功後，設定按鈕為「斷線」功能 ===
+                if (btn_close != null)
+                {
+                    btn_close.Enabled = true;
+                    btn_close.Text = "Disconnect";
+                }
 
                 SetManualNotch(-8);
             }
             catch (Exception ex)
             {
+                if (portInput != null) { try { portInput.Close(); } catch { } portInput = null; }
+                if (portDisplay != null) { try { portDisplay.Close(); } catch { } portDisplay = null; }
+
                 MessageBox.Show("連線失敗: " + ex.Message);
             }
         }
@@ -193,8 +266,17 @@ namespace TSMasconInput
             }
         }
 
+        // === [修改 3] 斷線按鈕邏輯：兼具斷線與刷新功能 ===
         private void btn_close_Click(object sender, EventArgs e)
         {
+            // 情況A：如果目前根本沒連線 (btn_open 是 enabled 的)，那這個按鈕就當作「刷新鍵」使用
+            if (btn_open != null && btn_open.Enabled == true)
+            {
+                RefreshPorts();
+                return;
+            }
+
+            // 情況B：如果已連線，則執行斷線動作
             try
             {
                 if (portInput != null)
@@ -213,8 +295,18 @@ namespace TSMasconInput
             portInput = null;
             portDisplay = null;
 
+            // 恢復「連線」按鈕
             if (btn_open != null) btn_open.Enabled = true;
-            if (btn_close != null) btn_close.Enabled = false;
+
+            // 確保「斷線/刷新」按鈕保持開啟，並改回文字
+            if (btn_close != null)
+            {
+                btn_close.Enabled = true;
+                btn_close.Text = "Refresh";
+            }
+
+            // 斷線後順便刷新一次
+            RefreshPorts();
         }
 
         private void SetTascBehavior(TascBehaviorState newBehavior)
@@ -283,6 +375,7 @@ namespace TSMasconInput
             TrainCrewInput.Dispose();
             if (portInput != null && portInput.IsOpen) portInput.Close();
             if (portDisplay != null && portDisplay.IsOpen) portDisplay.Close();
+            if (speedMoniterWindow != null) speedMoniterWindow.Close();
         }
 
         StringBuilder sb = new StringBuilder();
@@ -391,7 +484,32 @@ namespace TSMasconInput
                 uiUpdateCounter = 0;
                 UpdateUI(state, limitToShow, dynamicSpeedTarget_Reason, finalOutputNotch, effectiveTascNotch, effectiveAtcNotch, safeSpeedNextGame, safeSpeedNextXml, xmlLimitSpeed, xmlLimitDistance, gaugeTargetValue);
 
-                // 🔥🔥🔥 [修改處] 使用獨立的 portDisplay 發送數據包 🔥🔥🔥
+                // --- 同步懸浮視窗數據 ---
+                if (speedMoniterWindow != null && !speedMoniterWindow.IsDisposed)
+                {
+                    float valBlue = (currentTascBehavior == TascBehaviorState.Braking) ? (float)tasc.LastExpectedSpeedKmph : -1f;
+
+                    float rawNextLimit = -1f;
+                    if (dynamicSpeedTarget_Reason == "NextGame") rawNextLimit = state.nextSpeedLimit;
+                    else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed;
+                    else
+                    {
+                        bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
+                        bool isGameValid = (state.nextSpeedLimit >= 0 && state.nextSpeedLimit < 120f && state.nextSpeedLimitDistance > 0);
+                        if (isXmlValid && isGameValid)
+                            rawNextLimit = (xmlLimitDistance <= state.nextSpeedLimitDistance) ? xmlLimitSpeed : state.nextSpeedLimit;
+                        else if (isXmlValid) rawNextLimit = xmlLimitSpeed;
+                        else if (isGameValid) rawNextLimit = state.nextSpeedLimit;
+                    }
+
+                    // 判斷是否需要顯示警告
+                    bool showWarning = (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml");
+
+                    // 呼叫更新
+                    speedMoniterWindow.UpdateData((float)state.Speed, valBlue, rawNextLimit, gaugeTargetValue, showWarning);
+                }
+
+                // ESP32 通訊
                 if (portDisplay != null && portDisplay.IsOpen)
                 {
                     try
@@ -433,7 +551,6 @@ namespace TSMasconInput
 
         private void UpdateUI(TrainState state, float limitToShow, string dynamicSpeedTarget_Reason, int finalOutputNotch, int effectiveTascNotch, int effectiveAtcNotch, float safeSpeedNextGame, float safeSpeedNextXml, float xmlLimitSpeed, float xmlLimitDistance, float gaugeTargetValue)
         {
-            // (這部分程式碼完全保留你的原本邏輯，不作任何省略)
             try
             {
                 this.speedGauge.Value = (float)state.Speed;
@@ -606,7 +723,6 @@ namespace TSMasconInput
             catch { }
         }
 
-        // === 輔助函式 (保持原樣) ===
         private int ConvertEsp32ToGameNotch(int rawGear)
         {
             if (rawGear > GEAR_N_INDEX) return rawGear - GEAR_N_INDEX;

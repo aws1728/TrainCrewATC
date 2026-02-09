@@ -31,6 +31,7 @@
             this.comboBoxDisplay = new System.Windows.Forms.ComboBox();
             this.btn_open = new System.Windows.Forms.Button();
             this.btn_close = new System.Windows.Forms.Button();
+            this.btn_monitor_toggle = new System.Windows.Forms.Button();
             this.pressureGauge = new TSMasconInput.AnalogGauge();
             this.speedGauge = new TSMasconInput.AnalogGauge();
             this.SuspendLayout();
@@ -166,6 +167,17 @@
             this.btn_close.Text = "Disconnect";
             this.btn_close.UseVisualStyleBackColor = true;
             // 
+            // btn_monitor_toggle
+            // 
+            this.btn_monitor_toggle.UseVisualStyleBackColor = true;
+            this.btn_monitor_toggle.Location = new System.Drawing.Point(10, 523);
+            this.btn_monitor_toggle.Name = "btn_monitor_toggle";
+            this.btn_monitor_toggle.Size = new System.Drawing.Size(118, 35);
+            this.btn_monitor_toggle.TabIndex = 10;
+            this.btn_monitor_toggle.Text = "隱藏速度表";
+            this.btn_monitor_toggle.UseVisualStyleBackColor = false;
+            this.btn_monitor_toggle.Click += new System.EventHandler(this.btn_monitor_toggle_Click);
+            // 
             // pressureGauge
             // 
             this.pressureGauge.GaugeTitle = "壓力 (黑:BC/紅:MR)";
@@ -211,6 +223,7 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 18F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(796, 563);
+            this.Controls.Add(this.btn_monitor_toggle);
             this.Controls.Add(this.comboBoxMotor);
             this.Controls.Add(this.comboBoxDisplay);
             this.Controls.Add(this.btn_close);
@@ -248,11 +261,11 @@
         private System.Windows.Forms.Label labelTascStatus;
         private AnalogGauge speedGauge;
         private AnalogGauge pressureGauge;
-        private System.Windows.Forms.Button btn_atc_toggle; // 新增
-        // [新增] 4. 宣告控制項變數
+        private System.Windows.Forms.Button btn_atc_toggle;
         private System.Windows.Forms.ComboBox comboBoxMotor;
         private System.Windows.Forms.Button btn_open;
         private System.Windows.Forms.Button btn_close;
         private System.Windows.Forms.ComboBox comboBoxDisplay;
+        private System.Windows.Forms.Button btn_monitor_toggle; // 新增控制項
     }
 }

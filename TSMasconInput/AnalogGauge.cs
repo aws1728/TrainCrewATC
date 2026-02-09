@@ -124,8 +124,8 @@ namespace TSMasconInput
             if (MaxValue == 1000) majorTicks = 10; // 1000kPa (每 100)
 
             using (Font tickFont = new Font(this.Font.FontFamily, 8f))
-            using (Pen tickPen = new Pen(Color.Black, 2))
-            using (SolidBrush textBrush = new SolidBrush(Color.Black))
+            using (Pen tickPen = new Pen(this.ForeColor, 2))
+            using (SolidBrush textBrush = new SolidBrush(this.ForeColor))
             {
                 for (int i = 0; i <= majorTicks; i++)
                 {
@@ -154,7 +154,7 @@ namespace TSMasconInput
             // 3. 繪製標題和單位 (包含數位速度)
             using (StringFormat sf = new StringFormat { Alignment = StringAlignment.Center })
             using (Font titleFont = new Font(this.Font.FontFamily, 10, FontStyle.Bold))
-            using (SolidBrush textBrush = new SolidBrush(Color.Black))
+            using (SolidBrush textBrush = new SolidBrush(this.ForeColor))
             {
                 g.DrawString(GaugeTitle, titleFont, textBrush, centerX, centerY + 30, sf);
 
@@ -297,7 +297,7 @@ namespace TSMasconInput
                 centerX - (radius / 5) * (float)Math.Cos(valueRad),
                 centerY - (radius / 5) * (float)Math.Sin(valueRad)
             );
-            using (Pen needlePenMain = new Pen(Color.Black, 3))
+            using (Pen needlePenMain = new Pen(this.ForeColor, 3))
             {
                 g.DrawLine(needlePenMain, needleBaseMain, needleEndMain);
             }
