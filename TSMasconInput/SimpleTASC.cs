@@ -1,5 +1,6 @@
 ﻿using System;
 using TrainCrew;
+using static System.Windows.Forms.AxHost;
 
 /// <summary>
 /// 這是 bve-autopilot TASC 演算法的核心 C# 移植版。
@@ -35,7 +36,12 @@ public class SimpleTASC
     // 5. 抑速緩衝時間 (Smoothing Time)
     // 當從 P 段 (加速中) 觸發 ATC 時，為了減少頓挫，
     // 在這段時間內 (1.5秒) 會限制最大煞車為 B1 (抑速)。
-    private const double ATC_SMOOTHING_TIME_S = 0.2;
+    private const double ATC_SMOOTHING_TIME_S = 0.5;
+
+    // 用於 ATC 的煞車緩衝控制變數
+    private int _lastFilteredBrakeNotch = 0;       // 上一次輸出的平滑後檔位
+    private DateTime _lastBrakeChangeTime = DateTime.MinValue; // 上一次變換檔位的時間
+    private const double BRAKE_HOLD_TIME_S = 0.2;  // 煞車檔位保持時間 (建議比加速的 0.5s 短，確保反應夠快)
 
     // ------------------------------------------
 
@@ -116,82 +122,120 @@ public class SimpleTASC
     /// 【ATC 專用計算邏輯】(包含防抖動、目標緩衝、頓挫抑制)
     /// </summary>
     /// <param name="currentPnotch">目前的加速檔位 (P1~P5)，用於判斷是否需要抑速緩衝</param>
-    public int GetAtoNotchForATC(double currentSpeedKmph, double idealSpeedKmph, double currentGradePermil, int currentPnotch)
+    public int GetAtoNotchForATC(TrainState state, double currentSpeedKmph, double idealSpeedKmph, double currentGradePermil, int currentPnotch)
     {
-        // 1. 狀態機邏輯 (State Machine)
+        // 1. 狀態機邏輯 (保持原有觸發判定)
         if (!_isAtcBraking)
         {
-            // 目前沒煞車：只有「速度 > 限速」才觸發
-            if (currentSpeedKmph > idealSpeedKmph)
+            if (currentSpeedKmph > idealSpeedKmph || (idealSpeedKmph == 0 && currentSpeedKmph > 0.1))
             {
                 _isAtcBraking = true;
-
-                // 如果是從加速狀態 (P > 0) 觸發，記錄現在時間，準備進行抑速緩衝
-                if (currentPnotch > 0)
-                {
-                    _atcEngagementTime = DateTime.Now;
-                }
-                else
-                {
-                    _atcEngagementTime = DateTime.MinValue;
-                }
+                _atcEngagementTime = (currentPnotch > 0) ? DateTime.Now : DateTime.MinValue;
             }
         }
         else
         {
-            // 目前煞車中：速度需低於 (限速 - 解除門檻) 才解除
-            if (currentSpeedKmph <= (idealSpeedKmph - ATC_RESET_RANGE))
+            // 只有在目標速度不為 0 時才檢查解除門檻；若目標是停車，則直到完全停穩前都不解除
+            if (idealSpeedKmph > 0 && currentSpeedKmph <= (idealSpeedKmph - ATC_RESET_RANGE))
             {
                 _isAtcBraking = false;
             }
         }
 
-        // 如果不需要煞車，直接回傳 0
-        if (!_isAtcBraking) return 0;
-
-        // 2. 設定目標速度 (加入緩衝)
-        // 目標 = 限速 - 2.0 (例如限速 90 -> 目標 88)
-        double targetSpeedForCalculation = idealSpeedKmph - ATC_TARGET_BUFFER;
-        if (targetSpeedForCalculation < 0.1) targetSpeedForCalculation = 0.1;
-
-        double currentSpeedMps = currentSpeedKmph * KMPH_TO_MPS;
-        double targetSpeedMps = targetSpeedForCalculation * KMPH_TO_MPS;
-
-        // 3. 計算煞車力道 (線性 P-Control)
-        double speedErrorMps = currentSpeedMps - targetSpeedMps;
-        if (speedErrorMps < 0) speedErrorMps = 0;
-
-        // 需求減速度 = 誤差 / 2.0秒
-        double targetDecelMps2 = speedErrorMps / ATC_RESPONSE_TIME_S;
-
-        // 4. 坡度補償
-        double gradeRatio = currentGradePermil / 1000.0;
-        double gradeAccelerationMps2 = -0.75 * GRAVITY_MPS2 * gradeRatio;
-
-        double requiredDecelMps2 = targetDecelMps2 + gradeAccelerationMps2;
-
-        if (requiredDecelMps2 <= 0) return 0;
-
-        int brakeNotch = _brakeModel.GetNotchForDeceleration(requiredDecelMps2);
-
-        // 轉換為 TrainCrew 格式 (負數表示煞車, -1=B1, -2=B2...)
-        int calculatedOutput = (brakeNotch == 0) ? 0 : -(brakeNotch + 1);
-
-        // ==========================================
-        // 5. 頓挫抑制邏輯 (Anti-Jerk Smoothing)
-        // ==========================================
-        // 檢查是否處於 ATC 剛啟動的緩衝時間內 (1.5秒)
-        if ((DateTime.Now - _atcEngagementTime).TotalSeconds < ATC_SMOOTHING_TIME_S)
+        // 若未觸發 ATC，重置緩衝狀態並回傳 0
+        if (!_isAtcBraking)
         {
-            // 如果計算出來的煞車力比 B1 還強 (例如 B3, B4...)
-            // 我們強制限制在 B1 (抑速)，讓動力先斷開，列車緩衝一下
-            if (calculatedOutput < -1)
+            _lastFilteredBrakeNotch = 0; // 重置
+            return 0;
+        }
+
+        // 物理計算：算出「理想的目標檔位」 (Raw Target)
+        int rawTargetNotch = 0;
+
+        // 2. 核心計算：目標減速度 (targetDecelMps2)
+        double currentSpeedMps = currentSpeedKmph * KMPH_TO_MPS;
+        double targetDecelMps2 = 0.0;
+
+        // --- [優化部分] ---
+        if (currentSpeedKmph <= 15.0)
+        {
+            // 直接調用 TASC 停車邏輯
+            // 假設距離目標剩餘 5 公尺（模擬紅燈停車的緩衝距離），或直接傳入 0 觸發時間收斂
+            rawTargetNotch = CalculateTascNotch(currentSpeedKmph, state.nextSpeedLimitDistance - ATC_DISTANCE_MARGIN_M, 0.0, currentGradePermil, false);
+        }
+        else // 一般限速行駛
+        {
+            double targetSpeedMps = (idealSpeedKmph - ATC_TARGET_BUFFER) * KMPH_TO_MPS;
+            double speedErrorMps = Math.Max(0, currentSpeedMps - targetSpeedMps);
+            targetDecelMps2 = speedErrorMps / ATC_RESPONSE_TIME_S;
+        
+        // 3. 坡度補償與最終輸出
+            double gradeRatio = currentGradePermil / 1000.0;
+            double gradeAccelerationMps2 = -0.75 * GRAVITY_MPS2 * gradeRatio;
+            double requiredDecelMps2 = targetDecelMps2 + gradeAccelerationMps2;
+
+            if (requiredDecelMps2 <= 0)
             {
-                return -1; // 強制輸出 B1
+                rawTargetNotch = 0;
+            }
+            else
+            {
+                int brakeNotch = _brakeModel.GetNotchForDeceleration(requiredDecelMps2);
+                rawTargetNotch = (brakeNotch == 0) ? 0 : -(brakeNotch + 1);
             }
         }
 
-        return calculatedOutput;
+        // --- (新增：ATC 煞車平滑緩衝邏輯) ---
+
+        // 3. 逐級升降檔 (Step-by-Step Buffering)
+        // 比較「計算出的目標」與「上一次實際輸出」
+        // 注意：煞車檔位是負數 (0, -1, -2... -8)
+        // 更小的數字代表更強的煞車 (例如 -5 比 -2 強)
+
+        int finalOutput = rawTargetNotch;
+
+        // [加強煞車]：如果目標比上次更強 (例如上次 -2, 目標 -5)
+        // 限制一次只能加一級 (變成 -3)
+        if (finalOutput < _lastFilteredBrakeNotch - 1)
+        {
+            finalOutput = _lastFilteredBrakeNotch - 1;
+        }
+        // [緩解煞車]：如果目標比上次更弱 (例如上次 -5, 目標 -2)
+        // 限制一次只能放一級 (變成 -4)
+        else if (finalOutput > _lastFilteredBrakeNotch + 1)
+        {
+            finalOutput = _lastFilteredBrakeNotch + 1;
+        }
+
+        // 4. 防抖動時間鎖定 (Time Delay)
+        // 只有當檔位發生變化時才檢查
+        if (finalOutput != _lastFilteredBrakeNotch)
+        {
+            double timeSinceChange = (DateTime.Now - _lastBrakeChangeTime).TotalSeconds;
+
+            // 如果距離上次變動時間太短，則忽略這次改變，維持原檔位
+            // (除非是緊急情況：若目標是緊急煞車或極大落差，可視情況略過，但這裡為了平滑先強制鎖定)
+            if (timeSinceChange < BRAKE_HOLD_TIME_S)
+            {
+                finalOutput = _lastFilteredBrakeNotch;
+            }
+            else
+            {
+                // 時間足夠，允許變動，更新時間與狀態
+                _lastFilteredBrakeNotch = finalOutput;
+                _lastBrakeChangeTime = DateTime.Now;
+            }
+        }
+        /*
+        // 4. 防頓挫平滑緩衝 (保持原有功能)
+        if ((DateTime.Now - _atcEngagementTime).TotalSeconds < ATC_SMOOTHING_TIME_S)
+        {
+            if (finalOutput < -1) finalOutput = -1; // 剛開始只允許 B1
+        }
+        */
+        // 更新記錄並回傳
+        _lastFilteredBrakeNotch = finalOutput;
+        return finalOutput;
     }
 
     // --- TASC 共用計算邏輯 (保持不變) ---

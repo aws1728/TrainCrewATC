@@ -45,8 +45,6 @@ namespace TSMasconInput
         private double _lastAccelSpeed = 0.0;
         private DateTime _lastAccelTime = DateTime.Now;
         private double _currentAccel = 0.0;
-
-        // UI 更新計數器 (降頻用)
         private int uiUpdateCounter = 0;
         private SpeedMoniter speedMoniterWindow;
 
@@ -87,7 +85,6 @@ namespace TSMasconInput
                 this.btn_open.Click += new EventHandler(this.btn_open_Click);
                 this.btn_open.Enabled = true;
             }
-            // === [修改 1] 初始化斷線按鈕為「可用」狀態，作為刷新鍵 ===
             if (this.btn_close != null)
             {
                 this.btn_close.Click += new EventHandler(this.btn_close_Click);
@@ -95,11 +92,9 @@ namespace TSMasconInput
                 this.btn_close.Text = "Refresh";
             }
 
-            // === 啟動時自動顯示 SpeedMoniter ===
             speedMoniterWindow = new SpeedMoniter();
             speedMoniterWindow.Show();
 
-            // Timer 設定
             tim.Tick += Tim_Tick;
             tim.Interval = 15;
             tim.Start();
@@ -323,7 +318,6 @@ namespace TSMasconInput
         }
 
         private void button1_Click(object sender, EventArgs e) { }
-        private void btn_tasc_toggle_Click_1(object sender, EventArgs e) { }
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e) { }
 
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
@@ -490,7 +484,6 @@ namespace TSMasconInput
                 uiUpdateCounter = 0;
                 UpdateUI(state, limitToShow, dynamicSpeedTarget_Reason, finalOutputNotch, effectiveTascNotch, effectiveAtcNotch, safeSpeedNextGame, safeSpeedNextXml, xmlLimitSpeed, xmlLimitDistance, gaugeTargetValue);
 
-                // --- 同步懸浮視窗數據 ---
                 if (speedMoniterWindow != null && !speedMoniterWindow.IsDisposed)
                 {
                     float valBlue = (currentTascBehavior == TascBehaviorState.Braking) ? (float)ato.Tasc.LastExpectedSpeedKmph : -1f;
@@ -509,7 +502,6 @@ namespace TSMasconInput
                     speedMoniterWindow.UpdateData((float)state.Speed, valBlue, rawNextLimit, gaugeTargetValue, showWarning);
                 }
 
-                // ESP32 通訊
                 if (portDisplay != null && portDisplay.IsOpen)
                 {
                     try
@@ -700,28 +692,31 @@ namespace TSMasconInput
             try
             {
                 string atoLabel = "ATO: ";
-
-                // 判斷最終輸出的來源標籤 (邏輯保持不變，用於顯示 OUT)
-                if (finalOutputNotch < 0)
+                if (finalOutputNotch < 0) // 當處於煞車狀態時
                 {
-                    if (effectiveAtcNotch < 0 && effectiveAtcNotch <= finalOutputNotch)
+                    // 判斷 ATC 是否介入 (ATC 檔位比 TASC/ATO 更小/更強)
+                    // 注意：煞車檔位是負數，例如 -5 小於 -1，代表 -5 煞車更強
+                    bool isAtcDominating = (effectiveAtcNotch < 0 && effectiveAtcNotch <= effectiveTascNotch);
+
+                    if (isAtcDominating)
+                    {
                         atoLabel = "ATC: ";
-                    else if (effectiveTascNotch < 0 && effectiveTascNotch <= finalOutputNotch)
-                        atoLabel = "TASC: ";
+                    }
                     else
-                        atoLabel = "ATO: ";
+                    {
+                        // 如果是 ATO/TASC 煞車，進一步區分是「定點停車」還是「一般減速」
+                        if (currentTascBehavior == TascBehaviorState.Braking ||
+                            currentTascBehavior == TascBehaviorState.Holding)
+                        {
+                            atoLabel = "TASC: "; // 正在執行定點停車
+                        }
+                        else
+                        {
+                            atoLabel = "ATO: ";  // 只是 ATO 在調整速度
+                        }
+                    }
                 }
-
                 sb.Clear();
-
-                // === 修改開始：顯示詳細的除錯資訊 ===
-                // 格式：ATO:P5 ATC:N TASC:B2
-                // 這樣你可以一眼看出三者目前的狀態
-                sb.Append("ATO:" + ConvertNotchToString(atoRunningNotch) + " ");
-                sb.Append("ATC:" + ConvertNotchToString(effectiveAtcNotch) + " ");
-                sb.Append("TASC:" + ConvertNotchToString(effectiveTascNotch) + " ");
-
-                // 顯示最終輸出 (Winner)
                 sb.AppendLine(atoLabel + ConvertNotchToString(finalOutputNotch));
                 sb.AppendLine("Notch:" + CalNotch(state.Pnotch, state.Bnotch));
                 sb.AppendLine("Handle:" + ConvertNotchToString(currentEsp32Notch));

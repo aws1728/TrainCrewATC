@@ -63,6 +63,7 @@
     <Compile Include="AnalogGauge.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="ATOController.cs" />
     <Compile Include="BrakeModel.cs" />
     <Compile Include="Data.cs" />
     <Compile Include="Form1.cs">
@@ -74,6 +75,11 @@
     <Compile Include="SpeedMoniter.cs">
       <SubType>Form</SubType>
     </Compile>
+    <None Include="storeATO.cs" />
+    <None Include="storeTASC.cs" />
+    <None Include="storeMain.cs">
+      <SubType>Form</SubType>
+    </None>
     <Compile Include="TASCUtils.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

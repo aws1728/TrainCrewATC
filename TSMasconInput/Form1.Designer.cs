@@ -2,8 +2,15 @@
 {
     partial class Form1
     {
+        /// <summary>
+        /// 必要なデザイナー変数です。
+        /// </summary>
         private System.ComponentModel.IContainer components = null;
 
+        /// <summary>
+        /// 使用中のリソースをすべてクリーンアップします。
+        /// </summary>
+        /// <param name="disposing">マネージド リソースを破棄する場合は true を指定し、その他の場合は false を指定します。</param>
         protected override void Dispose(bool disposing)
         {
             if (disposing && (components != null))
@@ -15,6 +22,10 @@
 
         #region Windows フォーム デザイナーで生成されたコード
 
+        /// <summary>
+        /// デザイナー サポートに必要なメソッドです。このメソッドの内容を
+        /// コード エディターで変更しないでください。
+        /// </summary>
         private void InitializeComponent()
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
@@ -32,6 +43,8 @@
             this.btn_open = new System.Windows.Forms.Button();
             this.btn_close = new System.Windows.Forms.Button();
             this.btn_monitor_toggle = new System.Windows.Forms.Button();
+            this.btn_ato_toggle = new System.Windows.Forms.Button();
+            this.btn_depart = new System.Windows.Forms.Button();
             this.pressureGauge = new TSMasconInput.AnalogGauge();
             this.speedGauge = new TSMasconInput.AnalogGauge();
             this.SuspendLayout();
@@ -85,15 +98,16 @@
             this.btn_tasc_toggle.TabIndex = 4;
             this.btn_tasc_toggle.Text = "TASC: OFF";
             this.btn_tasc_toggle.UseVisualStyleBackColor = true;
-            this.btn_tasc_toggle.Click += new System.EventHandler(this.btn_tasc_toggle_Click_1);
+            this.btn_tasc_toggle.Click += new System.EventHandler(this.btn_tasc_toggle_Click);
             // 
             // labelNotch
             // 
             this.labelNotch.AutoSize = true;
-            this.labelNotch.Location = new System.Drawing.Point(7, 6);
+            this.labelNotch.BackColor = System.Drawing.Color.Transparent; // ★ 新增這行：設定透明
+            this.labelNotch.Location = new System.Drawing.Point(15, 26);
             this.labelNotch.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             this.labelNotch.Name = "labelNotch";
-            this.labelNotch.Size = new System.Drawing.Size(98, 54);
+            this.labelNotch.Size = new System.Drawing.Size(120, 54);
             this.labelNotch.TabIndex = 5;
             this.labelNotch.Text = "ATO: N\nNotch:抑速\nHandle:抑速";
             // 
@@ -116,6 +130,7 @@
             this.btn_atc_toggle.TabIndex = 9;
             this.btn_atc_toggle.Text = "ATC: OFF";
             this.btn_atc_toggle.UseVisualStyleBackColor = true;
+            this.btn_atc_toggle.Click += new System.EventHandler(this.btn_atc_toggle_Click);
             // 
             // label
             // 
@@ -136,7 +151,6 @@
             this.comboBoxMotor.Name = "comboBoxMotor";
             this.comboBoxMotor.Size = new System.Drawing.Size(85, 26);
             this.comboBoxMotor.TabIndex = 2;
-            this.comboBoxMotor.SelectedIndexChanged += new System.EventHandler(this.comboBox1_SelectedIndexChanged);
             // 
             // comboBoxDisplay
             // 
@@ -169,14 +183,36 @@
             // 
             // btn_monitor_toggle
             // 
-            this.btn_monitor_toggle.UseVisualStyleBackColor = true;
             this.btn_monitor_toggle.Location = new System.Drawing.Point(10, 523);
             this.btn_monitor_toggle.Name = "btn_monitor_toggle";
             this.btn_monitor_toggle.Size = new System.Drawing.Size(118, 35);
             this.btn_monitor_toggle.TabIndex = 10;
             this.btn_monitor_toggle.Text = "隱藏速度表";
-            this.btn_monitor_toggle.UseVisualStyleBackColor = false;
+            this.btn_monitor_toggle.UseVisualStyleBackColor = true;
             this.btn_monitor_toggle.Click += new System.EventHandler(this.btn_monitor_toggle_Click);
+            // 
+            // btn_ato_toggle
+            // 
+            this.btn_ato_toggle.Location = new System.Drawing.Point(548, 441);
+            this.btn_ato_toggle.Name = "btn_ato_toggle";
+            this.btn_ato_toggle.Size = new System.Drawing.Size(118, 35);
+            this.btn_ato_toggle.TabIndex = 11;
+            this.btn_ato_toggle.Text = "ATO: OFF";
+            this.btn_ato_toggle.UseVisualStyleBackColor = true;
+            this.btn_ato_toggle.Click += new System.EventHandler(this.Btn_ato_toggle_Click);
+            // 
+            // btn_depart
+            // 
+            this.btn_depart.BackColor = System.Drawing.Color.LightGray;
+            this.btn_depart.Enabled = false;
+            this.btn_depart.Font = new System.Drawing.Font("Arial", 9F, System.Drawing.FontStyle.Bold);
+            this.btn_depart.Location = new System.Drawing.Point(673, 439);
+            this.btn_depart.Name = "btn_depart";
+            this.btn_depart.Size = new System.Drawing.Size(118, 35);
+            this.btn_depart.TabIndex = 12;
+            this.btn_depart.Text = "DEPART";
+            this.btn_depart.UseVisualStyleBackColor = false;
+            this.btn_depart.Click += new System.EventHandler(this.Btn_depart_Click);
             // 
             // pressureGauge
             // 
@@ -223,6 +259,8 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 18F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(796, 563);
+            this.Controls.Add(this.btn_depart);
+            this.Controls.Add(this.btn_ato_toggle);
             this.Controls.Add(this.btn_monitor_toggle);
             this.Controls.Add(this.comboBoxMotor);
             this.Controls.Add(this.comboBoxDisplay);
@@ -238,6 +276,7 @@
             this.Controls.Add(this.labelATS);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.pressureGauge);
+            this.pressureGauge.Controls.Add(this.labelNotch);
             this.Controls.Add(this.speedGauge);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Margin = new System.Windows.Forms.Padding(4, 5, 4, 5);
@@ -266,6 +305,8 @@
         private System.Windows.Forms.Button btn_open;
         private System.Windows.Forms.Button btn_close;
         private System.Windows.Forms.ComboBox comboBoxDisplay;
-        private System.Windows.Forms.Button btn_monitor_toggle; // 新增控制項
+        private System.Windows.Forms.Button btn_monitor_toggle;
+        private System.Windows.Forms.Button btn_ato_toggle;
+        private System.Windows.Forms.Button btn_depart;
     }
 }
