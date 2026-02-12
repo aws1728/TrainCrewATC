@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO.Ports;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using TrainCrew;
 
@@ -27,7 +28,9 @@ namespace TSMasconInput
 
         // === 3. TASC/ATO 變數 ===
         Timer tim = new Timer();
+        private SimpleTASC tasc;
         private ATOController ato;
+        
 
         // --- 狀態旗標 ---
         private bool isTascMasterOn = true;  // 控制：是否執行定點停車
@@ -51,6 +54,8 @@ namespace TSMasconInput
         private SpeedMoniter speedMoniterWindow;
 
         // 參數常數
+        private const double MY_MAX_BRAKE_DECEL_KMPHPS = 3.7;
+        private const int MY_BRAKE_NOTCHES = 6;
         private const double TASC_ACTIVATION_DISTANCE_M = 800.0;
         private const double TASC_STOP_MARGIN_M = 0.18;
         private const double TASC_STOP_ADJUST_M = 0.15; // ★ 關鍵的停車位置補償
@@ -63,6 +68,7 @@ namespace TSMasconInput
             this.TopMost = true;
 
             currentEsp32Notch = GEAR_N_INDEX;
+            tasc = new SimpleTASC(MY_MAX_BRAKE_DECEL_KMPHPS, MY_BRAKE_NOTCHES);
             ato = new ATOController();
 
             // --- 既有按鈕初始化 ---
@@ -323,7 +329,6 @@ namespace TSMasconInput
         }
 
         private void button1_Click(object sender, EventArgs e) { }
-        private void btn_tasc_toggle_Click_1(object sender, EventArgs e) { }
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e) { }
 
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
@@ -417,6 +422,7 @@ namespace TSMasconInput
             // 這樣 ATO 內部計算 TASC 煞車時，就會包含 0.15m 的補償，停車就會準了。
             int atoRecommendedNotch = ato.Update(state, (float)currentSpeed, (float)currentGrade, (float)distanceToStop, limitToShow,
                 isTascMasterOn, allowAccel, finalAtcNotch);
+            atoRunningNotch = atoRecommendedNotch;
 
             // 狀態機 (TASC)
             bool manualPowerOverride = (manualPowerNotch > 0);
@@ -453,7 +459,17 @@ namespace TSMasconInput
                         SetTascBehavior(TascBehaviorState.Idle);
                     else
                     {
-                        tascStationNotch = atoRecommendedNotch;
+                        int tascNotch = tasc.GetAtoNotch(currentSpeed, distanceToStop, currentGrade);
+
+                        // 如果 TASC 沒有煞車需求 (為 0)，則允許輸出 ATO 的建議檔位 (加速)
+                        if (tascNotch == 0)
+                        {
+                            tascStationNotch = atoRecommendedNotch;
+                        }
+                        else
+                        {
+                            tascStationNotch = tascNotch;
+                        }
                     }
                     break;
 
