@@ -41,7 +41,7 @@ public class SimpleTASC
     // 用於 ATC 的煞車緩衝控制變數
     private int _lastFilteredBrakeNotch = 0;       // 上一次輸出的平滑後檔位
     private DateTime _lastBrakeChangeTime = DateTime.MinValue; // 上一次變換檔位的時間
-    private const double BRAKE_HOLD_TIME_S = 0.2;  // 煞車檔位保持時間 (建議比加速的 0.5s 短，確保反應夠快)
+    private const double BRAKE_HOLD_TIME_S = 0.28;  // 煞車檔位保持時間 (建議比加速的 0.5s 短，確保反應夠快)
 
     // ------------------------------------------
 
@@ -226,13 +226,13 @@ public class SimpleTASC
                 _lastBrakeChangeTime = DateTime.Now;
             }
         }
-        /*
+        
         // 4. 防頓挫平滑緩衝 (保持原有功能)
         if ((DateTime.Now - _atcEngagementTime).TotalSeconds < ATC_SMOOTHING_TIME_S)
         {
             if (finalOutput < -1) finalOutput = -1; // 剛開始只允許 B1
         }
-        */
+        
         // 更新記錄並回傳
         _lastFilteredBrakeNotch = finalOutput;
         return finalOutput;

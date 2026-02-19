@@ -132,6 +132,7 @@ namespace TSMasconInput
             if (finalBrakeNotch <= -1 || overrideBrakeNotch < 0) forceStopAccel = true;
             if (currentSpeed >= targetLimit) forceStopAccel = true;
             if (xmlLimitDistance > 0 && currentSpeed >= (signalLimit - 5.0f)) forceStopAccel = true;
+            if (state.nextSpeedLimitDistance > 0 && currentSpeed >= (signalLimit - 5.0f)) forceStopAccel = true;
 
             // 如果下坡保護正在運作 (State 1 或 2)，絕對不能加速
             if (_downhillState != 0) forceStopAccel = true;

@@ -72,7 +72,7 @@
             // labelPnl
             // 
             this.labelPnl.AutoSize = true;
-            this.labelPnl.Location = new System.Drawing.Point(225, 331);
+            this.labelPnl.Location = new System.Drawing.Point(212, 331);
             this.labelPnl.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             this.labelPnl.Name = "labelPnl";
             this.labelPnl.Size = new System.Drawing.Size(67, 18);
