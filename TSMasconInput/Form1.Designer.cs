@@ -91,7 +91,7 @@
             // 
             // btn_tasc_toggle
             // 
-            this.btn_tasc_toggle.Location = new System.Drawing.Point(673, 484);
+            this.btn_tasc_toggle.Location = new System.Drawing.Point(319, 491);
             this.btn_tasc_toggle.Margin = new System.Windows.Forms.Padding(4, 5, 4, 5);
             this.btn_tasc_toggle.Name = "btn_tasc_toggle";
             this.btn_tasc_toggle.Size = new System.Drawing.Size(118, 35);
@@ -103,11 +103,11 @@
             // labelNotch
             // 
             this.labelNotch.AutoSize = true;
-            this.labelNotch.BackColor = System.Drawing.Color.Transparent; // ★ 新增這行：設定透明
+            this.labelNotch.BackColor = System.Drawing.Color.Transparent;
             this.labelNotch.Location = new System.Drawing.Point(15, 26);
             this.labelNotch.Margin = new System.Windows.Forms.Padding(4, 0, 4, 0);
             this.labelNotch.Name = "labelNotch";
-            this.labelNotch.Size = new System.Drawing.Size(120, 54);
+            this.labelNotch.Size = new System.Drawing.Size(98, 54);
             this.labelNotch.TabIndex = 5;
             this.labelNotch.Text = "ATO: N\nNotch:抑速\nHandle:抑速";
             // 
@@ -123,7 +123,7 @@
             // 
             // btn_atc_toggle
             // 
-            this.btn_atc_toggle.Location = new System.Drawing.Point(547, 484);
+            this.btn_atc_toggle.Location = new System.Drawing.Point(437, 491);
             this.btn_atc_toggle.Margin = new System.Windows.Forms.Padding(4, 5, 4, 5);
             this.btn_atc_toggle.Name = "btn_atc_toggle";
             this.btn_atc_toggle.Size = new System.Drawing.Size(118, 35);
@@ -146,7 +146,7 @@
             // comboBoxMotor
             // 
             this.comboBoxMotor.FormattingEnabled = true;
-            this.comboBoxMotor.Location = new System.Drawing.Point(457, 528);
+            this.comboBoxMotor.Location = new System.Drawing.Point(464, 528);
             this.comboBoxMotor.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
             this.comboBoxMotor.Name = "comboBoxMotor";
             this.comboBoxMotor.Size = new System.Drawing.Size(85, 26);
@@ -155,14 +155,14 @@
             // comboBoxDisplay
             // 
             this.comboBoxDisplay.FormattingEnabled = true;
-            this.comboBoxDisplay.Location = new System.Drawing.Point(366, 528);
+            this.comboBoxDisplay.Location = new System.Drawing.Point(371, 528);
             this.comboBoxDisplay.Name = "comboBoxDisplay";
             this.comboBoxDisplay.Size = new System.Drawing.Size(85, 26);
             this.comboBoxDisplay.TabIndex = 3;
             // 
             // btn_open
             // 
-            this.btn_open.Location = new System.Drawing.Point(547, 526);
+            this.btn_open.Location = new System.Drawing.Point(555, 526);
             this.btn_open.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
             this.btn_open.Name = "btn_open";
             this.btn_open.Size = new System.Drawing.Size(118, 35);
@@ -193,7 +193,7 @@
             // 
             // btn_ato_toggle
             // 
-            this.btn_ato_toggle.Location = new System.Drawing.Point(548, 441);
+            this.btn_ato_toggle.Location = new System.Drawing.Point(555, 491);
             this.btn_ato_toggle.Name = "btn_ato_toggle";
             this.btn_ato_toggle.Size = new System.Drawing.Size(118, 35);
             this.btn_ato_toggle.TabIndex = 11;
@@ -206,7 +206,7 @@
             this.btn_depart.BackColor = System.Drawing.Color.LightGray;
             this.btn_depart.Enabled = false;
             this.btn_depart.Font = new System.Drawing.Font("Arial", 9F, System.Drawing.FontStyle.Bold);
-            this.btn_depart.Location = new System.Drawing.Point(673, 439);
+            this.btn_depart.Location = new System.Drawing.Point(673, 491);
             this.btn_depart.Name = "btn_depart";
             this.btn_depart.Size = new System.Drawing.Size(118, 35);
             this.btn_depart.TabIndex = 12;

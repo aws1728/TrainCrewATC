@@ -75,11 +75,6 @@
     <Compile Include="SpeedMoniter.cs">
       <SubType>Form</SubType>
     </Compile>
-    <None Include="storeATO.cs" />
-    <None Include="storeTASC.cs" />
-    <None Include="storeMain.cs">
-      <SubType>Form</SubType>
-    </None>
     <Compile Include="TASCUtils.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

@@ -377,10 +377,10 @@ namespace TSMasconInput
             float safeSpeedNextXml = 999f;
 
             if (state.nextSpeedLimit >= 0.0f && state.nextSpeedLimitDistance > 0)
-                safeSpeedNextGame = (float)ato.GetIdealSpeedForTarget(state.nextSpeedLimitDistance, state.nextSpeedLimit, state.gradient);
+                safeSpeedNextGame = (float)tasc.GetIdealSpeedForTarget(state.nextSpeedLimitDistance, state.nextSpeedLimit, state.gradient);
 
             if (xmlLimitSpeed < 120f && xmlLimitDistance > 0)
-                safeSpeedNextXml = (float)ato.GetIdealSpeedForTarget(xmlLimitDistance, xmlLimitSpeed, state.gradient);
+                safeSpeedNextXml = (float)tasc.GetIdealSpeedForTarget(xmlLimitDistance, xmlLimitSpeed, state.gradient);
 
             float limitToShow = safeSpeedCurrent;
             string dynamicSpeedTarget_Reason = "CurrentLimit";
@@ -394,7 +394,7 @@ namespace TSMasconInput
             int finalAtcNotch = 0;
             if (isAtcMasterOn && (limitToShow < 999f || state.nextSpeedLimit == 0))
             {
-                finalAtcNotch = ato.GetAtoNotchForATC(state, currentSpeed, limitToShow, currentGrade, state.Pnotch);
+                finalAtcNotch = tasc.GetAtoNotchForATC(state, currentSpeed, limitToShow, currentGrade, state.Pnotch);
             }
 
             // 發車按鈕狀態管理
@@ -414,19 +414,10 @@ namespace TSMasconInput
                 isAtoDepartRequest = false;
             }
 
-            // ATO 邏輯整合
-            bool doorsClosed = state.Lamps[PanelLamp.DoorClose];
-            bool allowAccel = isAtoMasterOn && (currentSpeed > 0.5 || isAtoDepartRequest) && doorsClosed;
-
-            // ★ 修正重點：傳入 distanceToStop 而不是 state.nextStaDistance
-            // 這樣 ATO 內部計算 TASC 煞車時，就會包含 0.15m 的補償，停車就會準了。
-            int atoRecommendedNotch = ato.Update(state, (float)currentSpeed, (float)currentGrade, (float)distanceToStop, limitToShow,
-                isTascMasterOn, allowAccel, finalAtcNotch);
-            atoRunningNotch = atoRecommendedNotch;
+            
 
             // 狀態機 (TASC)
             bool manualPowerOverride = (manualPowerNotch > 0);
-
             switch (currentTascBehavior)
             {
                 case TascBehaviorState.Idle:
@@ -437,16 +428,7 @@ namespace TSMasconInput
                     if (distanceToStop > TASC_STOP_MARGIN_M && distanceToStop <= TASC_ACTIVATION_DISTANCE_M && !isPassThrough)
                     {
                         SetTascBehavior(TascBehaviorState.Braking);
-                        tascStationNotch = atoRecommendedNotch;
-                    }
-                    // 如果不在停車範圍，才檢查是否要加速
-                    else if (isAtoMasterOn)
-                    {
-                        tascStationNotch = atoRecommendedNotch; // 執行 ATO 加速指令
-                    }
-                    else
-                    {
-                        tascStationNotch = 0;
+                        //tascStationNotch = atoRecommendedNotch;
                     }
                     break;
 
@@ -459,17 +441,7 @@ namespace TSMasconInput
                         SetTascBehavior(TascBehaviorState.Idle);
                     else
                     {
-                        int tascNotch = tasc.GetAtoNotch(currentSpeed, distanceToStop, currentGrade);
-
-                        // 如果 TASC 沒有煞車需求 (為 0)，則允許輸出 ATO 的建議檔位 (加速)
-                        if (tascNotch == 0)
-                        {
-                            tascStationNotch = atoRecommendedNotch;
-                        }
-                        else
-                        {
-                            tascStationNotch = tascNotch;
-                        }
+                        tascStationNotch = tasc.GetAtoNotch(currentSpeed, distanceToStop, currentGrade);
                     }
                     break;
 
@@ -487,16 +459,33 @@ namespace TSMasconInput
                         SetTascBehavior(TascBehaviorState.Holding);
                     break;
             }
+            float tascExpectedSpeed = (currentTascBehavior == TascBehaviorState.Braking) ? (float)tasc.LastExpectedSpeedKmph : -1f;
+
+            // ATO 邏輯整合
+            bool doorsClosed = state.Lamps[PanelLamp.DoorClose];
+            bool allowAccel = isAtoMasterOn && (currentSpeed > 0.5 || isAtoDepartRequest) && doorsClosed;
+            int atoRecommendedNotch = ato.Update(state, (float)currentSpeed, (float)currentGrade, (float)distanceToStop, limitToShow,
+                isTascMasterOn, allowAccel, tascExpectedSpeed, finalAtcNotch);
+            atoRunningNotch = atoRecommendedNotch;
 
             // 輸出檔位
-            int effectiveTascNotch = tascStationNotch;
-            int effectiveAtcNotch = isAtcMasterOn ? finalAtcNotch : 0;
-
             int finalOutputNotch = 0;
-            if (effectiveAtcNotch < 0) finalOutputNotch = effectiveAtcNotch;
-            else if (effectiveTascNotch < 0) finalOutputNotch = effectiveTascNotch;
-            else finalOutputNotch = effectiveTascNotch;
-
+            if (tascStationNotch < 0 || finalAtcNotch < 0)
+            {
+                // TASC 或是 ATC 要求煞車
+                finalOutputNotch = Math.Min(tascStationNotch, finalAtcNotch);
+            }
+            else if (isAtoMasterOn)
+            {
+                // TASC 或是 ATC  沒有動作，交給 ATO 控制加速或下坡保護
+                finalOutputNotch = atoRecommendedNotch;
+            }
+            else
+            {
+                // 兩者都沒開或沒有動作，維持 N 檔
+                finalOutputNotch = 0;
+            }
+            
             TrainCrewInput.SetATO_Notch(finalOutputNotch);
 
             // UI 更新
@@ -504,12 +493,12 @@ namespace TSMasconInput
             if (uiUpdateCounter >= 5)
             {
                 uiUpdateCounter = 0;
-                UpdateUI(state, limitToShow, dynamicSpeedTarget_Reason, finalOutputNotch, effectiveTascNotch, effectiveAtcNotch, safeSpeedNextGame, safeSpeedNextXml, xmlLimitSpeed, xmlLimitDistance, gaugeTargetValue);
+                UpdateUI(state, limitToShow, dynamicSpeedTarget_Reason, finalOutputNotch, tascStationNotch, finalAtcNotch, safeSpeedNextGame, safeSpeedNextXml, xmlLimitSpeed, xmlLimitDistance, gaugeTargetValue);
 
                 // --- 同步懸浮視窗數據 ---
                 if (speedMoniterWindow != null && !speedMoniterWindow.IsDisposed)
                 {
-                    float valBlue = (currentTascBehavior == TascBehaviorState.Braking) ? (float)ato.Tasc.LastExpectedSpeedKmph : -1f;
+                    float valBlue = (currentTascBehavior == TascBehaviorState.Braking) ? tascExpectedSpeed : -1f;
                     float rawNextLimit = -1f;
                     if (dynamicSpeedTarget_Reason == "NextGame") rawNextLimit = state.nextSpeedLimit;
                     else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed;
@@ -532,7 +521,7 @@ namespace TSMasconInput
                     {
                         float valSpeed = (float)state.Speed;
                         float valBlue = -1;
-                        if (currentTascBehavior == TascBehaviorState.Braking) valBlue = (float)ato.Tasc.LastExpectedSpeedKmph;
+                        if (currentTascBehavior == TascBehaviorState.Braking) valBlue = tascExpectedSpeed;
                         float valGreen = -1;
                         // ESP32 Logic
                         bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
@@ -562,12 +551,12 @@ namespace TSMasconInput
             try
             {
                 this.speedGauge.Value = (float)state.Speed;
-                if (currentTascBehavior == TascBehaviorState.Braking) { this.speedGauge.TargetValue = (float)ato.Tasc.LastExpectedSpeedKmph; this.speedGauge.TargetValueColor = Color.Blue; }
+                if (currentTascBehavior == TascBehaviorState.Braking) { this.speedGauge.TargetValue = (float)tasc.LastExpectedSpeedKmph; this.speedGauge.TargetValueColor = Color.Blue; }
                 else { this.speedGauge.TargetValue = -1; }
 
                 float rawNextLimit = -1f;
                 if (dynamicSpeedTarget_Reason == "NextGame") rawNextLimit = state.nextSpeedLimit;
-                else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed;
+                else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed; 
                 else
                 {
                     bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
@@ -598,7 +587,7 @@ namespace TSMasconInput
                 sb.AppendLine("速度：" + state.Speed.ToString("0.0") + "km/h");
                 string accelSign = _currentAccel > 0 ? "+" : "";
                 sb.AppendLine("加速度：" + accelSign + _currentAccel.ToString("0.00") + "km/h/s");
-                if (currentTascBehavior == TascBehaviorState.Braking) sb.AppendLine("TASC理想：" + ato.Tasc.LastExpectedSpeedKmph.ToString("0.0") + "km/h");
+                if (currentTascBehavior == TascBehaviorState.Braking) sb.AppendLine("TASC理想：" + tasc.LastExpectedSpeedKmph.ToString("0.0") + "km/h");
                 if (limitToShow < 999)
                 {
                     if (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml") sb.AppendLine("建議速度：" + limitToShow.ToString("0.0") + "km/h");
@@ -715,17 +704,16 @@ namespace TSMasconInput
 
             try
             {
-                string atoLabel = "ATO: ";
+                string atoLabel = "ATO:";
 
                 // 判斷最終輸出的來源標籤 (邏輯保持不變，用於顯示 OUT)
-                if (finalOutputNotch < 0)
+                if (effectiveTascNotch < 0 && effectiveTascNotch < effectiveAtcNotch)
                 {
-                    if (effectiveAtcNotch < 0 && effectiveAtcNotch <= finalOutputNotch)
-                        atoLabel = "ATC: ";
-                    else if (effectiveTascNotch < 0 && effectiveTascNotch <= finalOutputNotch)
-                        atoLabel = "TASC: ";
-                    else
-                        atoLabel = "ATO: ";
+                    atoLabel = "TASC:";
+                }
+                else if (effectiveAtcNotch < 0 && effectiveAtcNotch < effectiveTascNotch)
+                {
+                    atoLabel = "ATC:";
                 }
 
                 sb.Clear();

@@ -141,47 +141,51 @@ public class SimpleTASC
                 _isAtcBraking = false;
             }
         }
-
+        /*
         // 若未觸發 ATC，重置緩衝狀態並回傳 0
         if (!_isAtcBraking)
         {
             _lastFilteredBrakeNotch = 0; // 重置
             return 0;
-        }
+        }*/
 
         // 物理計算：算出「理想的目標檔位」 (Raw Target)
         int rawTargetNotch = 0;
 
-        // 2. 核心計算：目標減速度 (targetDecelMps2)
-        double currentSpeedMps = currentSpeedKmph * KMPH_TO_MPS;
-        double targetDecelMps2 = 0.0;
-
-        // --- [優化部分] ---
-        if (currentSpeedKmph <= 15.0)
+        // ★ 新增這行：只有在 ATC 煞車時，才去算需要打多深的煞車
+        if (_isAtcBraking)
         {
-            // 直接調用 TASC 停車邏輯
-            // 假設距離目標剩餘 5 公尺（模擬紅燈停車的緩衝距離），或直接傳入 0 觸發時間收斂
-            rawTargetNotch = CalculateTascNotch(currentSpeedKmph, state.nextSpeedLimitDistance - ATC_DISTANCE_MARGIN_M, 0.0, currentGradePermil, false);
-        }
-        else // 一般限速行駛
-        {
-            double targetSpeedMps = (idealSpeedKmph - ATC_TARGET_BUFFER) * KMPH_TO_MPS;
-            double speedErrorMps = Math.Max(0, currentSpeedMps - targetSpeedMps);
-            targetDecelMps2 = speedErrorMps / ATC_RESPONSE_TIME_S;
-        
-        // 3. 坡度補償與最終輸出
-            double gradeRatio = currentGradePermil / 1000.0;
-            double gradeAccelerationMps2 = -0.75 * GRAVITY_MPS2 * gradeRatio;
-            double requiredDecelMps2 = targetDecelMps2 + gradeAccelerationMps2;
+            // 2. 核心計算：目標減速度 (targetDecelMps2)
+            double currentSpeedMps = currentSpeedKmph * KMPH_TO_MPS;
+            double targetDecelMps2 = 0.0;
 
-            if (requiredDecelMps2 <= 0)
+            // --- [優化部分] ---
+            if (currentSpeedKmph <= 15.0 && idealSpeedKmph == 0.0)
             {
-                rawTargetNotch = 0;
+                // 直接調用 TASC 停車邏輯
+                // 假設距離目標剩餘 5 公尺（模擬紅燈停車的緩衝距離），或直接傳入 0 觸發時間收斂
+                rawTargetNotch = CalculateTascNotch(currentSpeedKmph, state.nextSpeedLimitDistance - ATC_DISTANCE_MARGIN_M, 0.0, currentGradePermil, false);
             }
-            else
+            else // 一般限速行駛
             {
-                int brakeNotch = _brakeModel.GetNotchForDeceleration(requiredDecelMps2);
-                rawTargetNotch = (brakeNotch == 0) ? 0 : -(brakeNotch + 1);
+                double targetSpeedMps = (idealSpeedKmph - ATC_TARGET_BUFFER) * KMPH_TO_MPS;
+                double speedErrorMps = Math.Max(0, currentSpeedMps - targetSpeedMps);
+                targetDecelMps2 = speedErrorMps / ATC_RESPONSE_TIME_S;
+
+                // 3. 坡度補償與最終輸出
+                double gradeRatio = currentGradePermil / 1000.0;
+                double gradeAccelerationMps2 = -0.75 * GRAVITY_MPS2 * gradeRatio;
+                double requiredDecelMps2 = targetDecelMps2 + gradeAccelerationMps2;
+
+                if (requiredDecelMps2 <= 0)
+                {
+                    rawTargetNotch = 0;
+                }
+                else
+                {
+                    int brakeNotch = _brakeModel.GetNotchForDeceleration(requiredDecelMps2);
+                    rawTargetNotch = (brakeNotch == 0) ? 0 : -(brakeNotch + 1);
+                }
             }
         }
 
@@ -226,9 +230,10 @@ public class SimpleTASC
                 _lastBrakeChangeTime = DateTime.Now;
             }
         }
-        
+
         // 4. 防頓挫平滑緩衝 (保持原有功能)
-        if ((DateTime.Now - _atcEngagementTime).TotalSeconds < ATC_SMOOTHING_TIME_S)
+        // ★ 加上 _isAtcBraking 判斷
+        if (_isAtcBraking && (DateTime.Now - _atcEngagementTime).TotalSeconds < ATC_SMOOTHING_TIME_S)
         {
             if (finalOutput < -1) finalOutput = -1; // 剛開始只允許 B1
         }

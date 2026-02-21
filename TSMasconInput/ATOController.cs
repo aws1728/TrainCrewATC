@@ -4,10 +4,7 @@ using TrainCrew;
 namespace TSMasconInput
 {
     public class ATOController
-    {
-        private SimpleTASC _simpleTASC;
-        public SimpleTASC Tasc => _simpleTASC;
-
+    { 
         // --- [參數設定] ---
         // 上限: 限速 - 0.5 (ex: 25 - 0.5 = 24.5)
         private const float CRUISE_SPEED_MARGIN = 0.5f;
@@ -37,11 +34,6 @@ namespace TSMasconInput
         // 1. 上限觸發點 (紅色三角形 - 0.5km) -> 觸發 B1
         private const float DOWNHILL_TRIGGER_OFFSET = 0.5f;
 
-        // --- [新增] 煞車平滑化變數 (Step-by-Step Buffering) ---
-        private int _lastFilteredBrakeNotch = 0;       // 上一次輸出的平滑後檔位
-        private DateTime _lastBrakeChangeTime = DateTime.MinValue; // 上一次變換檔位的時間
-        private const double BRAKE_HOLD_TIME_S = 0.2;  // 檔位保持時間
-
         // 內部狀態
         private bool _isAccelerating = false;
 
@@ -50,12 +42,7 @@ namespace TSMasconInput
         // 1: 抑速維持 (Holding, -1)
         // 2: 強制減速 (Braking, -2)
         private int _downhillState = 0;
-
-        // 時間與物理量
-        private float _prevSpeed = 0f;
-        private float _currentAccel = 0f;
-        private DateTime _lastUpdateTime;
-
+        
         // 計時器
         private DateTime _lastPowerTime;
         private DateTime _lastNotchChangeTime;
@@ -65,28 +52,16 @@ namespace TSMasconInput
 
         public ATOController()
         {
-            _simpleTASC = new SimpleTASC(3.7, 6);
-            _lastUpdateTime = DateTime.Now;
             _lastPowerTime = DateTime.MinValue;
             _lastNotchChangeTime = DateTime.MinValue;
             _lastBrakeReqTime = DateTime.Now;
         }
 
         public int Update(TrainState state, float currentSpeed, float currentGrade, float nextStaDist, float signalLimit, 
-            bool enableTasc, bool enableAccel, int overrideBrakeNotch = 0)
+            bool enableTasc, bool enableAccel, float tascSpeed, int overrideBrakeNotch = 0)
         {
-            // 0. 基本物理量計算
-            DateTime now = DateTime.Now;
-            double dt = (now - _lastUpdateTime).TotalSeconds;
-            if (dt > 0.001)
-            {
-                float speedDiff = currentSpeed - _prevSpeed;
-                _currentAccel = (float)(speedDiff / dt);
-                _prevSpeed = currentSpeed;
-                _lastUpdateTime = now;
-            }
-
-            // 1. 取得 XML 速限
+            
+            // 1. 取得 XML 速限，需要再次檢查邏輯，再刪除
             float xmlLimitSpeed, xmlLimitDistance;
             float dist = nextStaDist > 0 ? nextStaDist : 0;
             TASCUtils.GetLimitSpeed(state, dist, 0, out xmlLimitSpeed, out xmlLimitDistance);
@@ -101,38 +76,22 @@ namespace TSMasconInput
             if (upperTarget < 0) upperTarget = 0;
             float lowerTarget = upperTarget - ACCEL_RESUME_DIFF;
 
-            // ==========================================
-            // 步驟 B：計算煞車需求 (TASC & ATC)
-            // ==========================================
-            bool isPass = state.nextStopType == "通過";
-            int stationNotch = (enableTasc && !isPass) ? _simpleTASC.GetAtoNotch(currentSpeed, nextStaDist, grade) : 0;
-
-            int limitNotch = 0;
-            if (xmlLimitDistance > 0)
-                limitNotch = _simpleTASC.GetAtoNotchToTargetSpeed(currentSpeed, xmlLimitDistance, xmlLimitSpeed, grade);
-
-            int signalNotch = 0;
-            if (currentSpeed > signalLimit + 1.0f)
-                signalNotch = _simpleTASC.GetAtoNotchToTargetSpeed(currentSpeed, 10, signalLimit, grade);
-
-            //int finalBrakeNotch = Math.Min(stationNotch, Math.Min(limitNotch, signalNotch));
-            int finalBrakeNotch = 0; //關閉ATO煞車，讓下坡保護獨立運作
-
             // 更新煞車請求時間
-            if (finalBrakeNotch < 0 || overrideBrakeNotch < 0) _lastBrakeReqTime = DateTime.Now;
+            if (overrideBrakeNotch < 0) _lastBrakeReqTime = DateTime.Now;
 
             // ==========================================
-            // 步驟 C：狀態機仲裁
+            // 步驟 B：狀態機仲裁
             // ==========================================
             bool forceStopAccel = false;
 
             if (!enableAccel) forceStopAccel = true;
             if (enableTasc && nextStaDist < 100 && state.nextStopType.Contains("停車")) forceStopAccel = true;
             if (state.nextSpeedLimit == 0.0 && state.nextSpeedLimitDistance < 100 ) forceStopAccel = true;
-            if (finalBrakeNotch <= -1 || overrideBrakeNotch < 0) forceStopAccel = true;
+            if (overrideBrakeNotch < 0) forceStopAccel = true;
             if (currentSpeed >= targetLimit) forceStopAccel = true;
             if (xmlLimitDistance > 0 && currentSpeed >= (signalLimit - 5.0f)) forceStopAccel = true;
             if (state.nextSpeedLimitDistance > 0 && currentSpeed >= (signalLimit - 5.0f)) forceStopAccel = true;
+            if (tascSpeed > 0 && currentSpeed >= tascSpeed - 8.0f) forceStopAccel = true;
 
             // 如果下坡保護正在運作 (State 1 或 2)，絕對不能加速
             if (_downhillState != 0) forceStopAccel = true;
@@ -151,7 +110,7 @@ namespace TSMasconInput
             }
 
             // ==========================================
-            // 步驟 D：最終輸出決定
+            // 步驟 C：最終輸出決定
             // ==========================================
 
             if (_isAccelerating)
@@ -278,9 +237,7 @@ namespace TSMasconInput
                 if (_downhillState == 2) downhillReq = -2;      // 強制 B1
                 else if (_downhillState == 1) downhillReq = -1; // 強制 抑速
 
-                // 取兩者中「煞車力較大」的 (數值較小的)
-                // 這樣如果 TASC 需要急煞 (-5)，就不會被下坡保護 (-2) 蓋掉
-                finalBrakeNotch = Math.Min(finalBrakeNotch, downhillReq);
+                int finalBrakeNotch = downhillReq;
 
                 // [關鍵修正] 在這裡再次更新煞車時間！
                 // 這樣才能確保「下坡保護 (-2/-1)」也被視為煞車，讓延遲邏輯生效
@@ -296,29 +253,13 @@ namespace TSMasconInput
                 double timeSincePower = (DateTime.Now - _lastPowerTime).TotalSeconds;
 
                 // [滑行緩衝]
-                if (timeSincePower < ATC_COASTING_TIME_S)
-                {
-                    if (finalBrakeNotch > -6) return 0;
-                }
+                if (timeSincePower < ATC_COASTING_TIME_S) return 0;
 
                 // [抑速緩衝]
-                if (timeSincePower < ATC_SMOOTHING_TIME_S)
-                {
-                    if (finalBrakeNotch > -6) return -1; // 用 -1 (抑速) 作為過渡
-                }
+                if (timeSincePower < ATC_SMOOTHING_TIME_S) return -1;
 
                 return finalBrakeNotch;
             }
-        }
-
-        public int GetAtoNotchForATC(TrainState state, double currentSpeed, double limit, double grade, int pNotch)
-        {
-            return _simpleTASC.GetAtoNotchForATC(state, currentSpeed, limit, grade, pNotch);
-        }
-
-        public double GetIdealSpeedForTarget(double dist, double speed, double grade)
-        {
-            return _simpleTASC.GetIdealSpeedForTarget(dist, speed, grade);
         }
     }
 }
