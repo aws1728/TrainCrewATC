@@ -173,6 +173,7 @@ namespace TSMasconInput
         }
 
         // === [修改] 更新數據方法，新增 showWarning 參數 ===
+        // === 更新數據方法 ===
         public void UpdateData(float speed, float targetBlue, float nextLimitGreen, float currentLimitRed, bool showWarning = false)
         {
             if (speedGauge != null)
@@ -183,17 +184,61 @@ namespace TSMasconInput
                 speedGauge.TargetValue3 = currentLimitRed > 0 ? currentLimitRed : -1;
             }
 
-            // === [新增] 警告標籤邏輯 ===
-            if (showWarning && nextLimitGreen > 0)
+            // === 警告標籤(lblWarning) 邏輯 ===
+            if (showWarning && nextLimitGreen >= 0 && currentLimitRed > nextLimitGreen)
             {
+                // 預告狀態的文字與顏色
                 lblWarning.Text = "前方預告: " + nextLimitGreen.ToString("0");
-                lblWarning.BackColor = Color.Orange;
-                // 閃爍效果 (約每 0.5 秒閃一次)
-                lblWarning.Visible = (Environment.TickCount % 500) < 250;
+                lblWarning.ForeColor = Color.FromArgb(3, 3, 3); // 深黑色字體
+
+                // 判斷是否超過紅色三角形 (超速判定)
+                if (currentLimitRed > 0 && speed > currentLimitRed)
+                {
+                    // 【狀態 1：預告且超速】標籤常駐顯示，背景「紅/橘」交替閃爍
+                    lblWarning.Visible = true;
+                    if ((Environment.TickCount % 500) < 250)
+                    {
+                        lblWarning.BackColor = Color.Red;
+                        lblWarning.ForeColor = Color.White;
+                    }
+                    else
+                        lblWarning.BackColor = Color.Orange;
+                }
+                else
+                {
+                    // 【狀態 2：單純預告未超速】保持橘色，恢復原本的「隱藏/顯示」閃爍效果
+                    lblWarning.BackColor = Color.Orange;
+                    bool isVisible = (Environment.TickCount % 500) < 250;
+                    lblWarning.Visible = isVisible;
+                }
             }
             else
             {
-                lblWarning.Visible = false;
+                // 確保離開預告後標籤不要消失
+                lblWarning.Visible = true;
+
+                if (currentLimitRed > 0 && speed > currentLimitRed)
+                {
+                    // 【狀態 3：正常狀態且超速】顯示速度限制並亮紅底
+                    lblWarning.Text = "速度限制: " + currentLimitRed.ToString("0");
+                    lblWarning.BackColor = Color.Red;
+                    lblWarning.ForeColor = Color.White; // 紅底配白字
+                    bool isVisible = (Environment.TickCount % 500) < 250;
+                    lblWarning.Visible = isVisible;
+                }
+                else
+                {
+                    lblWarning.Text = "";/*
+                    // 【狀態 4：正常狀態且未超速】顯示目前速限 (黑底白字)
+                    if (currentLimitRed > 0)
+                        lblWarning.Text = "目前速限: " + currentLimitRed.ToString("0");
+                    else
+                        lblWarning.Text = "";
+
+                    // 黑色會觸發去背變透明
+                    lblWarning.BackColor = Color.Black;
+                    lblWarning.ForeColor = Color.White;*/
+                }
             }
         }
 
