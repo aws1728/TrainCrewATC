@@ -10,8 +10,12 @@ namespace TSMasconInput
         private AnalogGauge speedGauge;
         private TrackBar sliderGlobal; // 控制整體透明度
         private Button btnToggleBg;    // 切換背景透明/黑色
+        private Button btnDepart;      // [新增] 發車按鈕
         private Label lblWarning; // [新增] 警告標籤
         private bool isBgTransparent = true; // 追蹤目前狀態
+
+        // [新增] 讓主視窗(Form1)知道發車按鈕被點擊了
+        public event EventHandler OnDepartClicked;
 
         // --- 視窗拖動 API ---
         [DllImport("user32.dll")]
@@ -22,7 +26,7 @@ namespace TSMasconInput
         public SpeedMoniter()
         {
             // === 調整大小與位置 ===
-            this.Size = new Size(250, 275); // 稍微縮減高度
+            this.Size = new Size(250, 275); // 高度和寬度
             this.Location = new Point(100, 100);
             this.StartPosition = FormStartPosition.Manual;
 
@@ -71,11 +75,23 @@ namespace TSMasconInput
                 }
             };
 
-            // === [新增] 背景切換按鈕 ===
+            // === [修改] 使用 TableLayoutPanel 將底部空間分成兩半 ===
+
+            TableLayoutPanel bottomPanel = new TableLayoutPanel();
+
+            bottomPanel.Dock = DockStyle.Bottom;
+            bottomPanel.Height = 25; // 稍微拉高一點比較好按
+            bottomPanel.ColumnCount = 2;
+            bottomPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            bottomPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            bottomPanel.Margin = new Padding(0);
+            bottomPanel.Padding = new Padding(0);
+
+            // === 左側背景切換按鈕 ===
             btnToggleBg = new Button();
             btnToggleBg.Text = "BG: Transparent";
             btnToggleBg.Height = 20;           // 小按鈕高度
-            btnToggleBg.Dock = DockStyle.Bottom;
+            btnToggleBg.Dock = DockStyle.Fill;
             btnToggleBg.FlatStyle = FlatStyle.Flat;
             btnToggleBg.FlatAppearance.BorderSize = 0;
             btnToggleBg.ForeColor = Color.White;
@@ -101,6 +117,32 @@ namespace TSMasconInput
                 }
             };
 
+            // 右側：[新增] 發車按鈕
+            btnDepart = new Button();
+            btnDepart.Text = "DEPART";
+            btnDepart.Dock = DockStyle.Fill;
+            btnDepart.FlatStyle = FlatStyle.Flat;
+            btnDepart.FlatAppearance.BorderSize = 0;
+            btnDepart.ForeColor = Color.Black;
+            btnDepart.BackColor = Color.LightGray;
+            btnDepart.Font = new Font("Arial", 8, FontStyle.Bold);
+            btnDepart.Enabled = false; // 預設禁用
+            btnDepart.Click += (s, e) => {
+
+                // 觸發事件給主程式
+
+                OnDepartClicked?.Invoke(this, EventArgs.Empty);
+
+            };
+
+
+
+            // 將兩個按鈕放入容器
+
+            bottomPanel.Controls.Add(btnToggleBg, 0, 0);
+
+            bottomPanel.Controls.Add(btnDepart, 1, 0);
+
             // === 拉桿: 整體透明度 (控制 Opacity) ===
             sliderGlobal = CreateTinySlider(100);
             sliderGlobal.Dock = DockStyle.Bottom;
@@ -111,7 +153,7 @@ namespace TSMasconInput
             // 將控制項加入視窗 (順序決定堆疊位置)
             this.Controls.Add(speedGauge);
             this.Controls.Add(sliderGlobal); // 位在按鈕上方
-            this.Controls.Add(btnToggleBg);  // 位在最底端
+            this.Controls.Add(bottomPanel);  // 位在最底端
 
             this.Opacity = 1.0;
         }
@@ -152,6 +194,27 @@ namespace TSMasconInput
             else
             {
                 lblWarning.Visible = false;
+            }
+        }
+
+        // === [新增] 讓 Form1 同步發車按鈕顏色及可用狀態 ===
+        public void UpdateDepartState(bool enabled, bool isRequested)
+        {
+            if (btnDepart.InvokeRequired)
+            {
+                btnDepart.Invoke(new Action(() => UpdateDepartState(enabled, isRequested)));
+                return;
+            }
+
+            btnDepart.Enabled = enabled;
+            if (enabled)
+            {
+                // 如果已經點擊並送出發車請求，則亮黃色
+                btnDepart.BackColor = isRequested ? Color.Yellow : Color.LightGray;
+            }
+            else
+            {
+                btnDepart.BackColor = Color.DarkGray; // 禁用狀態顏色
             }
         }
     }

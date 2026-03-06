@@ -103,12 +103,28 @@ namespace TSMasconInput
 
             // === 啟動時自動顯示 SpeedMoniter ===
             speedMoniterWindow = new SpeedMoniter();
+            HookSpeedMoniterEvents(); // ★ 這行一定要有！
             speedMoniterWindow.Show();
 
             // Timer 設定
             tim.Tick += Tim_Tick;
             tim.Interval = 15;
             tim.Start();
+        }
+
+        // [新增] 共用的綁定方法
+        private void HookSpeedMoniterEvents()
+        {
+            if (speedMoniterWindow != null)
+            {
+                speedMoniterWindow.OnDepartClicked += (s, e) => {
+                    if (isAtoMasterOn)
+                    {
+                        isAtoDepartRequest = true;
+                        btn_depart.BackColor = Color.Yellow;
+                    }
+                };
+            }
         }
 
         // === ATO 按鈕事件 ===
@@ -190,6 +206,7 @@ namespace TSMasconInput
             if (speedMoniterWindow == null || speedMoniterWindow.IsDisposed)
             {
                 speedMoniterWindow = new SpeedMoniter();
+                HookSpeedMoniterEvents(); // [新增這行]
                 speedMoniterWindow.Show();
                 btn_monitor_toggle.Text = "隱藏速度表";
             }
@@ -398,20 +415,27 @@ namespace TSMasconInput
             }
 
             // 發車按鈕狀態管理
+            bool departEnabled = false; // [新增變數追蹤是否可用]
             if (isAtoMasterOn)
             {
                 if (currentSpeed > 1.0)
                 {
                     if (isAtoDepartRequest) { isAtoDepartRequest = false; btn_depart.BackColor = Color.LightGray; }
                     btn_depart.Enabled = false;
+                    departEnabled = false;
                 }
-                else { btn_depart.Enabled = true; }
+                else 
+                { 
+                    btn_depart.Enabled = true;
+                    departEnabled = true;
+                }
             }
             else
             {
                 btn_depart.Enabled = false;
                 btn_depart.BackColor = SystemColors.Control;
                 isAtoDepartRequest = false;
+                departEnabled = false;
             }
 
             
@@ -512,6 +536,7 @@ namespace TSMasconInput
                     }
                     bool showWarning = (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml");
                     speedMoniterWindow.UpdateData((float)state.Speed, valBlue, rawNextLimit, gaugeTargetValue, showWarning);
+                    speedMoniterWindow.UpdateDepartState(departEnabled, isAtoDepartRequest);
                 }
 
                 // ESP32 通訊
