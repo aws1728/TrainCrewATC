@@ -6,6 +6,8 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using TrainCrew;
+using System.Net.Sockets; // 使用 UDP
+using System.Text;
 
 namespace TSMasconInput
 {
@@ -30,7 +32,9 @@ namespace TSMasconInput
         Timer tim = new Timer();
         private SimpleTASC tasc;
         private ATOController ato;
-        
+
+        private UdpClient udpClient = new UdpClient(); // UDP 廣播器
+        private UdpClient udpReceiver; // 用來接收來自 Python 訊號的接收器 (監聽 Port 5001)
 
         // --- 狀態旗標 ---
         private bool isTascMasterOn = true;  // 控制：是否執行定點停車
@@ -45,8 +49,8 @@ namespace TSMasconInput
         private int atoRunningNotch = 0;
 
         // === 4. 其他變數 ===
-        private double _lastAccelSpeed = 0.0;
-        private DateTime _lastAccelTime = DateTime.Now;
+        // 新增一個 Queue 來儲存過去 0.5 秒的速度紀錄
+        private Queue<Tuple<DateTime, double>> speedHistory = new Queue<Tuple<DateTime, double>>();
         private double _currentAccel = 0.0;
 
         // UI 更新計數器 (降頻用)
@@ -102,13 +106,17 @@ namespace TSMasconInput
             }
 
             // === 啟動時自動顯示 SpeedMoniter ===
-            speedMoniterWindow = new SpeedMoniter();
-            speedMoniterWindow.Show();
+            //speedMoniterWindow = new SpeedMoniter();
+            //HookSpeedMoniterEvents(); // ★ 這行一定要有！
+            //speedMoniterWindow.Show();
 
             // Timer 設定
             tim.Tick += Tim_Tick;
             tim.Interval = 15;
             tim.Start();
+
+            // 啟動 UDP 接收器
+            StartUdpReceiver();
         }
 
         // === ATO 按鈕事件 ===
@@ -337,6 +345,10 @@ namespace TSMasconInput
             if (portInput != null && portInput.IsOpen) portInput.Close();
             if (portDisplay != null && portDisplay.IsOpen) portDisplay.Close();
             if (speedMoniterWindow != null) speedMoniterWindow.Close();
+            // 關閉 UDP
+            if (udpClient != null) { udpClient.Close(); }
+            // 關閉 UDP 接收器
+            if (udpReceiver != null) { udpReceiver.Close(); }
         }
 
         StringBuilder sb = new StringBuilder();
@@ -348,13 +360,25 @@ namespace TSMasconInput
             if (state == null) return;
 
             // 1. 加速度計算
-            double timeDelta = (DateTime.Now - _lastAccelTime).TotalSeconds;
-            if (timeDelta >= 0.25)
+            speedHistory.Enqueue(new Tuple<DateTime, double>(DateTime.Now, state.Speed));
+
+            // 清除超過 0.5 秒前的舊資料
+            while (speedHistory.Count > 0 && (DateTime.Now - speedHistory.Peek().Item1).TotalSeconds > 0.5)
             {
-                double speedDelta = state.Speed - _lastAccelSpeed;
-                _currentAccel = speedDelta / timeDelta;
-                _lastAccelSpeed = state.Speed;
-                _lastAccelTime = DateTime.Now;
+                speedHistory.Dequeue();
+            }
+
+            // 確保有足夠的歷史資料來計算
+            if (speedHistory.Count > 1)
+            {
+                var oldest = speedHistory.Peek();
+                double tDelta = (DateTime.Now - oldest.Item1).TotalSeconds;
+
+                if (tDelta > 0)
+                {
+                    // 加速度 = (現在速度 - 0.5秒前的速度) / 經過時間
+                    _currentAccel = (state.Speed - oldest.Item2) / tDelta;
+                }
             }
 
             double currentSpeed = state.Speed;
@@ -495,24 +519,134 @@ namespace TSMasconInput
                 uiUpdateCounter = 0;
                 UpdateUI(state, limitToShow, dynamicSpeedTarget_Reason, finalOutputNotch, tascStationNotch, finalAtcNotch, safeSpeedNextGame, safeSpeedNextXml, xmlLimitSpeed, xmlLimitDistance, gaugeTargetValue);
 
+                float valBlue = (currentTascBehavior == TascBehaviorState.Braking) ? tascExpectedSpeed : -1f;
+                float rawNextLimit = -1f;
+                if (dynamicSpeedTarget_Reason == "NextGame") rawNextLimit = state.nextSpeedLimit;
+                else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed;
+                else
+                {
+                    bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
+                    bool isGameValid = (state.nextSpeedLimit >= 0 && state.nextSpeedLimit < 120f && state.nextSpeedLimitDistance > 0);
+                    if (isXmlValid && isGameValid) rawNextLimit = (xmlLimitDistance <= state.nextSpeedLimitDistance) ? xmlLimitSpeed : state.nextSpeedLimit;
+                    else if (isXmlValid) rawNextLimit = xmlLimitSpeed;
+                    else if (isGameValid) rawNextLimit = state.nextSpeedLimit;
+                }
+                bool showWarning = (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml");
+
                 // --- 同步懸浮視窗數據 ---
                 if (speedMoniterWindow != null && !speedMoniterWindow.IsDisposed)
                 {
-                    float valBlue = (currentTascBehavior == TascBehaviorState.Braking) ? tascExpectedSpeed : -1f;
-                    float rawNextLimit = -1f;
-                    if (dynamicSpeedTarget_Reason == "NextGame") rawNextLimit = state.nextSpeedLimit;
-                    else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed;
-                    else
-                    {
-                        bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
-                        bool isGameValid = (state.nextSpeedLimit >= 0 && state.nextSpeedLimit < 120f && state.nextSpeedLimitDistance > 0);
-                        if (isXmlValid && isGameValid) rawNextLimit = (xmlLimitDistance <= state.nextSpeedLimitDistance) ? xmlLimitSpeed : state.nextSpeedLimit;
-                        else if (isXmlValid) rawNextLimit = xmlLimitSpeed;
-                        else if (isGameValid) rawNextLimit = state.nextSpeedLimit;
-                    }
-                    bool showWarning = (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml");
+                    //float valBlue = (currentTascBehavior == TascBehaviorState.Braking) ? tascExpectedSpeed : -1f;
+                    //float rawNextLimit = -1f;
+                    //if (dynamicSpeedTarget_Reason == "NextGame") rawNextLimit = state.nextSpeedLimit;
+                    //else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed;
+                    //else
+                    //{
+                    //    bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
+                    //    bool isGameValid = (state.nextSpeedLimit >= 0 && state.nextSpeedLimit < 120f && state.nextSpeedLimitDistance > 0);
+                    //    if (isXmlValid && isGameValid) rawNextLimit = (xmlLimitDistance <= state.nextSpeedLimitDistance) ? xmlLimitSpeed : state.nextSpeedLimit;
+                    //    else if (isXmlValid) rawNextLimit = xmlLimitSpeed;
+                    //    else if (isGameValid) rawNextLimit = state.nextSpeedLimit;
+                    //}
+                    //bool showWarning = (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml");
                     speedMoniterWindow.UpdateData((float)state.Speed, valBlue, rawNextLimit, gaugeTargetValue, showWarning);
                 }
+
+                // ★ 新增：發送 UDP 資料給 Python 儀表板 ★
+                try
+                {
+                    // 1. 取得計算好的各項速度標記數值
+                    // 取得計算好的各項數值 (如果沒有數值，我們用 -1 代表)
+                    float udpcurrentSpeed = (float)state.Speed;
+                    float tascBlueLimit = (currentTascBehavior == TascBehaviorState.Braking) ? tascExpectedSpeed : -1f;
+
+                    // rawNextLimit 在上面你已經算好了，代表綠色的前方預告限速
+                    float greenNextLimit = rawNextLimit;
+
+                    // gaugeTargetValue 代表紅色的當前限速
+                    float redCurrentLimit = gaugeTargetValue;
+
+                    // === 2. 計算目前玩家的「手動檔位」數值 (-8 ~ 5) ===
+                    int manualNotch = 0;
+                    if (state.Bnotch > 0)
+                    {
+                        // Bnotch 對應: 8=非常(-8), 2=B1(-2), 1=抑速(-1)
+                        manualNotch = -state.Bnotch;
+                    }
+                    else if (state.Pnotch > 0)
+                    {
+                        // Pnotch 對應: 1=P1(1) ~ 5=P5(5)
+                        manualNotch = state.Pnotch;
+                    }
+
+                    // === 3. 根據遊戲規則，計算「最終實際作用 (Effective)」的檔位 ===
+                    // finalOutputNotch 是你的 ATO/TASC 算出來要給電腦輸出的檔位
+                    int effectiveNotch = 0;
+
+                    if (finalOutputNotch > 0)
+                    {
+                        // ATO 出力 (Powering)
+                        // 規則：只有在手動檔位置於 N 檔時，ATO 的出力才會生效
+                        if (manualNotch == 0)
+                        {
+                            effectiveNotch = finalOutputNotch;
+                        }
+                        else
+                        {
+                            effectiveNotch = manualNotch;
+                        }
+                    }
+                    else if (finalOutputNotch < 0)
+                    {
+                        // ATO 煞車 (Braking)
+                        // 規則：套用手動與 ATO 之中「煞車力道較大」的那一個
+                        // 由於煞車是以負數表示 (-8 最強，-1 最弱)，數值越小代表煞車越強，因此使用 Math.Min
+                        effectiveNotch = Math.Min(manualNotch, finalOutputNotch);
+                    }
+                    else
+                    {
+                        // ATO 為 N 檔 (0) 時，完全聽從玩家手動把手
+                        effectiveNotch = manualNotch;
+                    }
+
+                    // === 4. 將計算出的數值，轉換為 Python 儀表板認得的字串 ===
+                    string appliedNotchStr = "N";
+                    if (effectiveNotch == -8)
+                        appliedNotchStr = "非常";
+                    else if (effectiveNotch <= -2)
+                        appliedNotchStr = "B" + (-effectiveNotch - 1);
+                    else if (effectiveNotch == -1)
+                        appliedNotchStr = "抑速";
+                    else if (effectiveNotch > 0)
+                        appliedNotchStr = "P" + effectiveNotch;
+
+                    // 計算按鈕狀態碼 (0=禁用/暗灰, 1=可按/淺灰, 2=已按下/黃色)
+                    int departStateCode = 0;
+                    if (!departEnabled) departStateCode = 0;
+                    else if (isAtoDepartRequest) departStateCode = 2;
+                    else departStateCode = 1;
+
+                    // 格式化為字串："速度,藍色TASC,綠色預告,紅色限速" (例如："120.5,-1,60,110")
+                    string udpMsg = $"{udpcurrentSpeed:F1}," +
+                        $"{tascBlueLimit:F1}," +
+                        $"{greenNextLimit:F1}," +
+                        $"{redCurrentLimit:F1}," +
+                        $"{appliedNotchStr}," +
+                        $"{_currentAccel:F2}," +
+                        $"{currentGrade:F1}," +     // 第 7 項：坡度
+                        $"{state.CarStates[0].BC_Press.ToString("0"):F1}," +          // 第 8 項：BC
+                        $"{state.CarStates[1].BC_Press.ToString("0"):F1}," +
+                        $"{state.MR_Press.ToString("0"):F1}," +     // 第 10 項：MR
+                        $"{state.CarStates[0].Ampare.ToString("0"):F1}," +
+                        $"{state.CarStates[1].Ampare.ToString("0"):F1}," +
+                        $"{departStateCode}";            
+
+                    byte[] sendBytes = Encoding.UTF8.GetBytes(udpMsg);
+                    // 傳送到本機的 5000 埠號
+                    udpClient.Send(sendBytes, sendBytes.Length, "127.0.0.1", 5000);
+                }
+                catch { }
+
 
                 // ESP32 通訊
                 if (portDisplay != null && portDisplay.IsOpen)
@@ -520,7 +654,7 @@ namespace TSMasconInput
                     try
                     {
                         float valSpeed = (float)state.Speed;
-                        float valBlue = -1;
+                        //float valBlue = -1;
                         if (currentTascBehavior == TascBehaviorState.Braking) valBlue = tascExpectedSpeed;
                         float valGreen = -1;
                         // ESP32 Logic
@@ -543,6 +677,46 @@ namespace TSMasconInput
                     }
                     catch { }
                 }
+            }
+        }
+
+        private async void StartUdpReceiver()
+        {
+            try
+            {
+                // 綁定 Port 5001 進行監聽 (需與 Python 設定的 target_address 一致)
+                udpReceiver = new UdpClient(5001);
+
+                while (true)
+                {
+                    // 非同步等待接收封包，不會卡死 UI
+                    UdpReceiveResult result = await udpReceiver.ReceiveAsync();
+                    string message = Encoding.UTF8.GetString(result.Buffer);
+
+                    // 如果收到的字串是 "DEPART"
+                    if (message == "DEPART")
+                    {
+                        // 因為 UDP 接收是在背景執行緒，要修改 UI 與主程式狀態必須透過 Invoke 切回主執行緒
+                        this.Invoke(new Action(() =>
+                        {
+                            // 執行與按下 C# 實體按鈕相同的邏輯
+                            if (isAtoMasterOn)
+                            {
+                                isAtoDepartRequest = true;
+                                btn_depart.BackColor = Color.Yellow;
+                                Console.WriteLine("收到 Python 發車訊號！");
+                            }
+                        }));
+                    }
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // 當程式關閉，udpReceiver 被 Close() 時會觸發此例外，正常忽略即可
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("UDP 接收發生錯誤: " + ex.Message);
             }
         }
 

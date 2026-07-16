@@ -187,7 +187,7 @@
             this.btn_monitor_toggle.Name = "btn_monitor_toggle";
             this.btn_monitor_toggle.Size = new System.Drawing.Size(118, 35);
             this.btn_monitor_toggle.TabIndex = 10;
-            this.btn_monitor_toggle.Text = "隱藏速度表";
+            this.btn_monitor_toggle.Text = "顯示速度表";
             this.btn_monitor_toggle.UseVisualStyleBackColor = true;
             this.btn_monitor_toggle.Click += new System.EventHandler(this.btn_monitor_toggle_Click);
             // 
