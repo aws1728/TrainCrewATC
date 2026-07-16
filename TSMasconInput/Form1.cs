@@ -622,7 +622,7 @@ namespace TSMasconInput
 
                     // 計算按鈕狀態碼 (0=禁用/暗灰, 1=可按/淺灰, 2=已按下/黃色)
                     int departStateCode = 0;
-                    if (!departEnabled) departStateCode = 0;
+                    if (!btn_depart.Enabled) departStateCode = 0;
                     else if (isAtoDepartRequest) departStateCode = 2;
                     else departStateCode = 1;
 
