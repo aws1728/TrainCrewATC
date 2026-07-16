@@ -13,14 +13,6 @@ namespace TSMasconInput
 {
     public partial class Form1 : Form
     {
-        // === 1. ESP32 連線變數 ===
-        private SerialPort portInput;   // 負責接收檔位
-        private SerialPort portDisplay; // 負責顯示的東西
-        private StringBuilder serialBuffer = new StringBuilder();
-
-        // 儲存 ESP32 目前的檔位
-        private int currentEsp32Notch = 0;
-        private int lastProcessedEsp32Gear = -999;
 
         // === 2. 檔位配置 ===
         const int BRAKE_STEPS = 6;
@@ -55,7 +47,7 @@ namespace TSMasconInput
 
         // UI 更新計數器 (降頻用)
         private int uiUpdateCounter = 0;
-        private SpeedMoniter speedMoniterWindow;
+        //private SpeedMoniter speedMoniterWindow;
 
         // 參數常數
         private const double MY_MAX_BRAKE_DECEL_KMPHPS = 3.7;
@@ -71,7 +63,7 @@ namespace TSMasconInput
             FormClosed += Form1_FormClosed;
             this.TopMost = true;
 
-            currentEsp32Notch = GEAR_N_INDEX;
+            //currentEsp32Notch = GEAR_N_INDEX;
             tasc = new SimpleTASC(MY_MAX_BRAKE_DECEL_KMPHPS, MY_BRAKE_NOTCHES);
             ato = new ATOController();
 
@@ -89,26 +81,6 @@ namespace TSMasconInput
             btn_depart.Text = "DEPART";
             btn_depart.Enabled = false;
             btn_depart.BackColor = SystemColors.Control;
-
-            // COM Port 初始化
-            RefreshPorts();
-            if (this.btn_open != null)
-            {
-                this.btn_open.Click += new EventHandler(this.btn_open_Click);
-                this.btn_open.Enabled = true;
-            }
-            // === [修改 1] 初始化斷線按鈕為「可用」狀態，作為刷新鍵 ===
-            if (this.btn_close != null)
-            {
-                this.btn_close.Click += new EventHandler(this.btn_close_Click);
-                this.btn_close.Enabled = true;
-                this.btn_close.Text = "Refresh";
-            }
-
-            // === 啟動時自動顯示 SpeedMoniter ===
-            //speedMoniterWindow = new SpeedMoniter();
-            //HookSpeedMoniterEvents(); // ★ 這行一定要有！
-            //speedMoniterWindow.Show();
 
             // Timer 設定
             tim.Tick += Tim_Tick;
@@ -161,152 +133,6 @@ namespace TSMasconInput
             }
         }
 
-        // === 既有邏輯保持不變 ===
-        private void RefreshPorts()
-        {
-            string lastMotor = comboBoxMotor != null ? comboBoxMotor.Text : "";
-            string lastDisplay = comboBoxDisplay != null ? comboBoxDisplay.Text : "";
-
-            if (comboBoxMotor != null) comboBoxMotor.Items.Clear();
-            if (comboBoxDisplay != null) comboBoxDisplay.Items.Clear();
-
-            if (comboBoxMotor != null) comboBoxMotor.Items.Add("控制器");
-            if (comboBoxDisplay != null) comboBoxDisplay.Items.Add("時速表");
-
-            var names = SerialPort.GetPortNames();
-            foreach (var nm in names)
-            {
-                if (comboBoxMotor != null) comboBoxMotor.Items.Add(nm);
-                if (comboBoxDisplay != null) comboBoxDisplay.Items.Add(nm);
-            }
-
-            if (comboBoxMotor != null)
-            {
-                if (comboBoxMotor.Items.Contains(lastMotor)) comboBoxMotor.Text = lastMotor;
-                else if (comboBoxMotor.Items.Count > 0) comboBoxMotor.SelectedIndex = 0;
-            }
-
-            if (comboBoxDisplay != null)
-            {
-                if (comboBoxDisplay.Items.Contains(lastDisplay)) comboBoxDisplay.Text = lastDisplay;
-                else if (comboBoxDisplay.Items.Count > 0) comboBoxDisplay.SelectedIndex = 0;
-            }
-        }
-
-        private void btn_monitor_toggle_Click(object sender, EventArgs e)
-        {
-            if (speedMoniterWindow == null || speedMoniterWindow.IsDisposed)
-            {
-                speedMoniterWindow = new SpeedMoniter();
-                speedMoniterWindow.Show();
-                btn_monitor_toggle.Text = "隱藏速度表";
-            }
-            else
-            {
-                speedMoniterWindow.Close();
-                speedMoniterWindow = null;
-                btn_monitor_toggle.Text = "顯示速度表";
-            }
-        }
-
-        private void btn_open_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                string portNameInput = comboBoxMotor.Text;
-                if (portNameInput != "控制器" && !string.IsNullOrEmpty(portNameInput))
-                {
-                    portInput = new SerialPort(portNameInput, 115200);
-                    portInput.DtrEnable = false;
-                    portInput.RtsEnable = false;
-                    portInput.DataBits = 8;
-                    portInput.NewLine = "\n";
-                    portInput.Parity = Parity.None;
-                    portInput.DataReceived += Port_DataReceived;
-                    portInput.Open();
-                }
-                else portInput = null;
-
-                string portNameDisplay = comboBoxDisplay.Text;
-                if (portNameDisplay != "時速表" && !string.IsNullOrEmpty(portNameDisplay))
-                {
-                    portDisplay = new SerialPort(portNameDisplay, 115200);
-                    portDisplay.DtrEnable = false;
-                    portDisplay.RtsEnable = false;
-                    portDisplay.DataBits = 8;
-                    portDisplay.NewLine = "\n";
-                    portDisplay.Parity = Parity.None;
-                    portDisplay.Open();
-                }
-                else portDisplay = null;
-
-                if (btn_open != null) btn_open.Enabled = false;
-                if (btn_close != null) { btn_close.Enabled = true; btn_close.Text = "Disconnect"; }
-
-                SetManualNotch(-8);
-            }
-            catch (Exception ex)
-            {
-                if (portInput != null) { try { portInput.Close(); } catch { } portInput = null; }
-                if (portDisplay != null) { try { portDisplay.Close(); } catch { } portDisplay = null; }
-                MessageBox.Show("連線失敗: " + ex.Message);
-            }
-        }
-
-        private void Port_DataReceived(object sender, SerialDataReceivedEventArgs e)
-        {
-            if (portInput == null || !portInput.IsOpen) return;
-            try
-            {
-                string data = portInput.ReadExisting();
-                lock (serialBuffer) { serialBuffer.Append(data); ProcessBuffer(); }
-            }
-            catch { }
-        }
-
-        private void ProcessBuffer()
-        {
-            string content = serialBuffer.ToString();
-            if (content.IndexOf('\n') == -1) return;
-            string[] lines = content.Split('\n');
-            int validLinesCount = lines.Length - 1;
-            int foundGear = -999;
-            for (int i = 0; i < validLinesCount; i++)
-            {
-                string line = lines[i].Trim();
-                if (line.StartsWith("CMD:"))
-                {
-                    try { foundGear = int.Parse(line.Substring(4)); } catch { }
-                }
-            }
-            serialBuffer.Remove(0, content.LastIndexOf('\n') + 1);
-            if (foundGear != -999)
-            {
-                int gameNotch = ConvertEsp32ToGameNotch(foundGear);
-                if (lastProcessedEsp32Gear != foundGear)
-                {
-                    currentEsp32Notch = gameNotch;
-                    lastProcessedEsp32Gear = foundGear;
-                    SetManualNotch(gameNotch);
-                }
-            }
-        }
-
-        private void btn_close_Click(object sender, EventArgs e)
-        {
-            if (btn_open != null && btn_open.Enabled == true) { RefreshPorts(); return; }
-            try
-            {
-                if (portInput != null) { portInput.DataReceived -= Port_DataReceived; if (portInput.IsOpen) portInput.Close(); portInput.Dispose(); }
-                if (portDisplay != null) { if (portDisplay.IsOpen) portDisplay.Close(); portDisplay.Dispose(); }
-            }
-            catch { }
-            portInput = null; portDisplay = null;
-            if (btn_open != null) btn_open.Enabled = true;
-            if (btn_close != null) { btn_close.Enabled = true; btn_close.Text = "Refresh"; }
-            RefreshPorts();
-        }
-
         private void SetTascBehavior(TascBehaviorState newBehavior)
         {
             if (this.labelTascStatus == null) return;
@@ -342,9 +168,6 @@ namespace TSMasconInput
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
         {
             TrainCrewInput.Dispose();
-            if (portInput != null && portInput.IsOpen) portInput.Close();
-            if (portDisplay != null && portDisplay.IsOpen) portDisplay.Close();
-            if (speedMoniterWindow != null) speedMoniterWindow.Close();
             // 關閉 UDP
             if (udpClient != null) { udpClient.Close(); }
             // 關閉 UDP 接收器
@@ -533,25 +356,6 @@ namespace TSMasconInput
                 }
                 bool showWarning = (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml");
 
-                // --- 同步懸浮視窗數據 ---
-                if (speedMoniterWindow != null && !speedMoniterWindow.IsDisposed)
-                {
-                    //float valBlue = (currentTascBehavior == TascBehaviorState.Braking) ? tascExpectedSpeed : -1f;
-                    //float rawNextLimit = -1f;
-                    //if (dynamicSpeedTarget_Reason == "NextGame") rawNextLimit = state.nextSpeedLimit;
-                    //else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed;
-                    //else
-                    //{
-                    //    bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
-                    //    bool isGameValid = (state.nextSpeedLimit >= 0 && state.nextSpeedLimit < 120f && state.nextSpeedLimitDistance > 0);
-                    //    if (isXmlValid && isGameValid) rawNextLimit = (xmlLimitDistance <= state.nextSpeedLimitDistance) ? xmlLimitSpeed : state.nextSpeedLimit;
-                    //    else if (isXmlValid) rawNextLimit = xmlLimitSpeed;
-                    //    else if (isGameValid) rawNextLimit = state.nextSpeedLimit;
-                    //}
-                    //bool showWarning = (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml");
-                    speedMoniterWindow.UpdateData((float)state.Speed, valBlue, rawNextLimit, gaugeTargetValue, showWarning);
-                }
-
                 // ★ 新增：發送 UDP 資料給 Python 儀表板 ★
                 try
                 {
@@ -646,37 +450,6 @@ namespace TSMasconInput
                     udpClient.Send(sendBytes, sendBytes.Length, "127.0.0.1", 5000);
                 }
                 catch { }
-
-
-                // ESP32 通訊
-                if (portDisplay != null && portDisplay.IsOpen)
-                {
-                    try
-                    {
-                        float valSpeed = (float)state.Speed;
-                        //float valBlue = -1;
-                        if (currentTascBehavior == TascBehaviorState.Braking) valBlue = tascExpectedSpeed;
-                        float valGreen = -1;
-                        // ESP32 Logic
-                        bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
-                        bool isGameValid = (state.nextSpeedLimit >= 0 && state.nextSpeedLimit < 120f && state.nextSpeedLimitDistance > 0);
-                        if (dynamicSpeedTarget_Reason == "NextGame") valGreen = state.nextSpeedLimit;
-                        else if (dynamicSpeedTarget_Reason == "NextXml") valGreen = xmlLimitSpeed;
-                        else if (isXmlValid && isGameValid) valGreen = (xmlLimitDistance <= state.nextSpeedLimitDistance) ? xmlLimitSpeed : state.nextSpeedLimit;
-                        else if (isXmlValid) valGreen = xmlLimitSpeed;
-                        else if (isGameValid) valGreen = state.nextSpeedLimit;
-
-                        float valRed = (limitToShow >= 999f) ? -1 : limitToShow;
-                        string gearStr = "N";
-                        if (state.Bnotch == 8) gearStr = "EB";
-                        else if (state.Bnotch > 1) gearStr = "B" + (state.Bnotch - 1);
-                        else if (state.Bnotch == 1) gearStr = "HOLD";
-                        else if (state.Pnotch > 0) gearStr = "P" + state.Pnotch;
-                        string cmd = string.Format("G:{0:0.0},{1:0.0},{2:0.0},{3:0.0},{4}", valSpeed, valBlue, valGreen, valRed, gearStr);
-                        portDisplay.WriteLine(cmd);
-                    }
-                    catch { }
-                }
             }
         }
 
@@ -902,26 +675,12 @@ namespace TSMasconInput
                 // 顯示最終輸出 (Winner)
                 sb.AppendLine(atoLabel + ConvertNotchToString(finalOutputNotch));
                 sb.AppendLine("Notch:" + CalNotch(state.Pnotch, state.Bnotch));
-                sb.AppendLine("Handle:" + ConvertNotchToString(currentEsp32Notch));
+                //sb.AppendLine("Handle:" + ConvertNotchToString(currentEsp32Notch));
                 labelNotch.Text = sb.ToString();
             }
             catch { }
         }
-
-        private int ConvertEsp32ToGameNotch(int rawGear)
-        {
-            if (rawGear > GEAR_N_INDEX) return rawGear - GEAR_N_INDEX;
-            else if (rawGear == GEAR_N_INDEX) return 0;
-            else if (HAS_HOLD && rawGear == (GEAR_N_INDEX - 1)) return -1;
-            else if (rawGear == 0) return -8;
-            else
-            {
-                int notch = rawGear - GEAR_N_INDEX;
-                if (notch <= -8) notch = -7;
-                return notch;
-            }
-        }
-        private void SetManualNotch(int notch) { TrainCrewInput.SetNotch(notch); }
+ 
         private string ConvertNotchToString(int notch)
         {
             if (notch == -8) return "EB";

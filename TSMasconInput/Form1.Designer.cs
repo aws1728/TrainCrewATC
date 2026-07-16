@@ -38,11 +38,6 @@
             this.labelTascStatus = new System.Windows.Forms.Label();
             this.btn_atc_toggle = new System.Windows.Forms.Button();
             this.label = new System.Windows.Forms.Label();
-            this.comboBoxMotor = new System.Windows.Forms.ComboBox();
-            this.comboBoxDisplay = new System.Windows.Forms.ComboBox();
-            this.btn_open = new System.Windows.Forms.Button();
-            this.btn_close = new System.Windows.Forms.Button();
-            this.btn_monitor_toggle = new System.Windows.Forms.Button();
             this.btn_ato_toggle = new System.Windows.Forms.Button();
             this.btn_depart = new System.Windows.Forms.Button();
             this.pressureGauge = new TSMasconInput.AnalogGauge();
@@ -143,54 +138,6 @@
             this.label.TabIndex = 2;
             this.label.Text = "前方予告: 120";
             // 
-            // comboBoxMotor
-            // 
-            this.comboBoxMotor.FormattingEnabled = true;
-            this.comboBoxMotor.Location = new System.Drawing.Point(464, 528);
-            this.comboBoxMotor.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-            this.comboBoxMotor.Name = "comboBoxMotor";
-            this.comboBoxMotor.Size = new System.Drawing.Size(85, 26);
-            this.comboBoxMotor.TabIndex = 2;
-            // 
-            // comboBoxDisplay
-            // 
-            this.comboBoxDisplay.FormattingEnabled = true;
-            this.comboBoxDisplay.Location = new System.Drawing.Point(371, 528);
-            this.comboBoxDisplay.Name = "comboBoxDisplay";
-            this.comboBoxDisplay.Size = new System.Drawing.Size(85, 26);
-            this.comboBoxDisplay.TabIndex = 3;
-            // 
-            // btn_open
-            // 
-            this.btn_open.Location = new System.Drawing.Point(555, 526);
-            this.btn_open.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-            this.btn_open.Name = "btn_open";
-            this.btn_open.Size = new System.Drawing.Size(118, 35);
-            this.btn_open.TabIndex = 2;
-            this.btn_open.Text = "Connect";
-            this.btn_open.UseVisualStyleBackColor = true;
-            // 
-            // btn_close
-            // 
-            this.btn_close.Enabled = false;
-            this.btn_close.Location = new System.Drawing.Point(673, 526);
-            this.btn_close.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-            this.btn_close.Name = "btn_close";
-            this.btn_close.Size = new System.Drawing.Size(118, 35);
-            this.btn_close.TabIndex = 2;
-            this.btn_close.Text = "Disconnect";
-            this.btn_close.UseVisualStyleBackColor = true;
-            // 
-            // btn_monitor_toggle
-            // 
-            this.btn_monitor_toggle.Location = new System.Drawing.Point(10, 523);
-            this.btn_monitor_toggle.Name = "btn_monitor_toggle";
-            this.btn_monitor_toggle.Size = new System.Drawing.Size(118, 35);
-            this.btn_monitor_toggle.TabIndex = 10;
-            this.btn_monitor_toggle.Text = "顯示速度表";
-            this.btn_monitor_toggle.UseVisualStyleBackColor = true;
-            this.btn_monitor_toggle.Click += new System.EventHandler(this.btn_monitor_toggle_Click);
-            // 
             // btn_ato_toggle
             // 
             this.btn_ato_toggle.Location = new System.Drawing.Point(555, 491);
@@ -261,11 +208,6 @@
             this.ClientSize = new System.Drawing.Size(796, 563);
             this.Controls.Add(this.btn_depart);
             this.Controls.Add(this.btn_ato_toggle);
-            this.Controls.Add(this.btn_monitor_toggle);
-            this.Controls.Add(this.comboBoxMotor);
-            this.Controls.Add(this.comboBoxDisplay);
-            this.Controls.Add(this.btn_close);
-            this.Controls.Add(this.btn_open);
             this.Controls.Add(this.btn_atc_toggle);
             this.Controls.Add(this.labelTascStatus);
             this.Controls.Add(this.labelNotch);
