@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using TrainCrew;
-using System.Net.Sockets; // 使用 UDP
+using System.Net.Sockets; // 使用 UDP_python
 using System.Text;
 
 namespace TSMasconInput
