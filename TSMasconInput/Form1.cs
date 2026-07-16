@@ -119,21 +119,6 @@ namespace TSMasconInput
             StartUdpReceiver();
         }
 
-        // [新增] 共用的綁定方法
-        private void HookSpeedMoniterEvents()
-        {
-            if (speedMoniterWindow != null)
-            {
-                speedMoniterWindow.OnDepartClicked += (s, e) => {
-                    if (isAtoMasterOn)
-                    {
-                        isAtoDepartRequest = true;
-                        btn_depart.BackColor = Color.Yellow;
-                    }
-                };
-            }
-        }
-
         // === ATO 按鈕事件 ===
         private void Btn_ato_toggle_Click(object sender, EventArgs e)
         {
@@ -213,7 +198,6 @@ namespace TSMasconInput
             if (speedMoniterWindow == null || speedMoniterWindow.IsDisposed)
             {
                 speedMoniterWindow = new SpeedMoniter();
-                HookSpeedMoniterEvents(); // [新增這行]
                 speedMoniterWindow.Show();
                 btn_monitor_toggle.Text = "隱藏速度表";
             }
@@ -438,27 +422,20 @@ namespace TSMasconInput
             }
 
             // 發車按鈕狀態管理
-            bool departEnabled = false; // [新增變數追蹤是否可用]
             if (isAtoMasterOn)
             {
                 if (currentSpeed > 1.0)
                 {
                     if (isAtoDepartRequest) { isAtoDepartRequest = false; btn_depart.BackColor = Color.LightGray; }
                     btn_depart.Enabled = false;
-                    departEnabled = false;
                 }
-                else 
-                { 
-                    btn_depart.Enabled = true;
-                    departEnabled = true;
-                }
+                else { btn_depart.Enabled = true; }
             }
             else
             {
                 btn_depart.Enabled = false;
                 btn_depart.BackColor = SystemColors.Control;
                 isAtoDepartRequest = false;
-                departEnabled = false;
             }
 
             
@@ -573,8 +550,6 @@ namespace TSMasconInput
                     //}
                     //bool showWarning = (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml");
                     speedMoniterWindow.UpdateData((float)state.Speed, valBlue, rawNextLimit, gaugeTargetValue, showWarning);
-                    speedMoniterWindow.UpdateDepartState(departEnabled, isAtoDepartRequest);
-                    //UpdateUI(state, limitToShow, dynamicSpeedTarget_Reason, finalOutputNotch, tascStationNotch, finalAtcNotch, safeSpeedNextGame, safeSpeedNextXml, xmlLimitSpeed, xmlLimitDistance, gaugeTargetValue);
                 }
 
                 // ★ 新增：發送 UDP 資料給 Python 儀表板 ★
@@ -885,58 +860,18 @@ namespace TSMasconInput
                 sb.Clear();
                 if (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml")
                 {
-                    // 預告狀態
                     float limitVal = (dynamicSpeedTarget_Reason == "NextGame") ? state.nextSpeedLimit : xmlLimitSpeed;
                     sb.AppendLine("前方預告: " + limitVal);
                     label.Text = sb.ToString();
-                    label.Visible = true;
-
-                    // 判斷預告狀態下是否超速
-                    if (gaugeTargetValue > 0 && state.Speed > gaugeTargetValue)
-                    {
-                        // 超速時：背景在「紅色」與「橘色」之間交替閃爍
-                        if ((Environment.TickCount % 500) < 250)
-                        {
-                            label.BackColor = Color.Red;
-                            label.ForeColor = Color.White;
-                        }
-                        else
-                        {
-                            label.BackColor = Color.Orange;
-                            label.ForeColor = Color.Black;
-                        }
-                    }
-                    else
-                    {
-                        // 未超速單純顯示預告：保持橘色閃爍
-                        label.BackColor = Color.Orange;
-                        label.ForeColor = Color.Black;
-                        bool isVisible = (Environment.TickCount % 500) < 250;
-                        label.Visible = isVisible;
-                    }
+                    label.BackColor = Color.Orange;
+                    bool isVisible = (Environment.TickCount % 500) < 250;
+                    label.Visible = isVisible;
                 }
                 else
                 {
-                    // 正常狀態
-                    if (gaugeTargetValue > 0 && state.Speed > gaugeTargetValue)
-                    {
-                        // 正常狀態下且超速時：顯示「速度限制: XX」並讓背景變為紅色
-                        float limitVal = gaugeTargetValue; // 紅色三角形代表的目前速限
-                        sb.AppendLine("速度限制: " + limitVal);
-                        label.Text = sb.ToString();
-                        label.BackColor = Color.Red;
-                        label.ForeColor = Color.White;
-                        bool isVisible = (Environment.TickCount % 500) < 250;
-                        label.Visible = isVisible;
-                    }
-                    else
-                    {
-                        // 正常狀態下且沒有超速：維持空白及預設背景色
-                        label.Text = "";
-                        label.BackColor = SystemColors.Control;
-                        label.Visible = true; // 將這行移進來這裡
-                    }
-                    //label.Visible = true;
+                    label.Text = "";
+                    label.BackColor = SystemColors.Control;
+                    label.Visible = true;
                 }
             }
             catch { }
