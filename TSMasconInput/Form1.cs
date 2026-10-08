@@ -315,12 +315,15 @@ namespace TSMasconInput
                 isTascMasterOn, allowAccel, tascExpectedSpeed, finalAtcNotch);
             atoRunningNotch = atoRecommendedNotch;
 
+            // 根據開關狀態，決定是否採用 TASC 的煞車指令
+            int effectiveTascNotch = isTascMasterOn ? tascStationNotch : 0;
+
             // 輸出檔位
             int finalOutputNotch = 0;
-            if (tascStationNotch < 0 || finalAtcNotch < 0)
+            if (effectiveTascNotch < 0 || finalAtcNotch < 0)
             {
                 // TASC 或是 ATC 要求煞車
-                finalOutputNotch = Math.Min(tascStationNotch, finalAtcNotch);
+                finalOutputNotch = Math.Min(effectiveTascNotch, finalAtcNotch);
             }
             else if (isAtoMasterOn)
             {
@@ -332,7 +335,7 @@ namespace TSMasconInput
                 // 兩者都沒開或沒有動作，維持 N 檔
                 finalOutputNotch = 0;
             }
-            
+
             TrainCrewInput.SetATO_Notch(finalOutputNotch);
 
             // UI 更新
