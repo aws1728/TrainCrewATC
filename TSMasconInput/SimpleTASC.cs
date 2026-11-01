@@ -25,7 +25,7 @@ public class SimpleTASC
     private const double ATC_RESET_RANGE = 2.0;
 
     // 3. 距離提前量 (Distance Margin)
-    // 在計算預告限速曲線時，假裝限速牌比實際位置近 30 公尺。
+    // 在計算預告限速曲線時，假裝限速牌比實際位置近 3 公尺。
     // 這樣能強迫列車在限速牌「之前」就減速完畢，而不是「剛好」在牌下。
     private const double ATC_DISTANCE_MARGIN_M = 3.0;
 
@@ -41,7 +41,7 @@ public class SimpleTASC
     // 用於 ATC 的煞車緩衝控制變數
     private int _lastFilteredBrakeNotch = 0;       // 上一次輸出的平滑後檔位
     private DateTime _lastBrakeChangeTime = DateTime.MinValue; // 上一次變換檔位的時間
-    private const double BRAKE_HOLD_TIME_S = 0.28;  // 煞車檔位保持時間 (建議比加速的 0.5s 短，確保反應夠快)
+    private const double BRAKE_HOLD_TIME_S = 0.2;  // 煞車檔位保持時間 (建議比加速的 0.5s 短，確保反應夠快) 0.28
 
     // ------------------------------------------
 

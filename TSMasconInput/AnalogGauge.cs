@@ -1,5 +1,4 @@
 ﻿// 檔案名稱: AnalogGauge.cs
-// (請將此檔案新增到您的 TSMasconInput 專案中)
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -16,7 +15,6 @@ namespace TSMasconInput
         private float _maxValue = 120;
         private string _gaugeTitle = "Speed";
         private string _unit = "km/h";
-
         private const float StartAngle = 135f; // 儀表起始角度
         private const float SweepAngle = 270f; // 儀表總共的角度
 
@@ -33,56 +31,56 @@ namespace TSMasconInput
         public float TargetValue3
         {
             get { return _targetValue3; }
-            set { _targetValue3 = value; this.Invalidate(); }
+            set { if (_targetValue3 != value) { _targetValue3 = value; this.Invalidate(); } }
         }
         // --- ---
 
         public float TargetValue2
         {
             get { return _targetValue2; }
-            set { _targetValue2 = value; this.Invalidate(); }
+            set { if (_targetValue2 != value) { _targetValue2 = value; this.Invalidate(); } }
         }
 
         public float Value
         {
             get { return _value; }
-            set { _value = value; this.Invalidate(); } // 重繪
+            set { if (_value != value) { _value = value; this.Invalidate(); } }
         }
 
         public float Value2
         {
             get { return _value2; }
-            set { _value2 = value; this.Invalidate(); }
+            set { if (_value2 != value) { _value2 = value; this.Invalidate(); } }
         }
 
         public float Value3
         {
             get { return _value3; }
-            set { _value3 = value; this.Invalidate(); }
+            set { if (_value3 != value) { _value3 = value; this.Invalidate(); } }
         }
 
         public float TargetValue
         {
             get { return _targetValue; }
-            set { _targetValue = value; this.Invalidate(); }
+            set { if (_targetValue != value) { _targetValue = value; this.Invalidate(); } }
         }
 
         public float MaxValue
         {
             get { return _maxValue; }
-            set { _maxValue = value; this.Invalidate(); }
+            set { if (_maxValue != value) { _maxValue = value; this.Invalidate(); } }
         }
 
         public string GaugeTitle
         {
             get { return _gaugeTitle; }
-            set { _gaugeTitle = value; this.Invalidate(); }
+            set { if (_gaugeTitle != value) { _gaugeTitle = value; this.Invalidate(); } }
         }
 
         public string Unit
         {
             get { return _unit; }
-            set { _unit = value; this.Invalidate(); }
+            set { if (_unit != value) { _unit = value; this.Invalidate(); } }
         }
 
         public AnalogGauge()
@@ -246,7 +244,6 @@ namespace TSMasconInput
                 }
             }
             // --- ---
-
 
             // 5. 繪製副指針 (Value2 - 紅色, MR 壓力)
             if (Value2 >= 0)

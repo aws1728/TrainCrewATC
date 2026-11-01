@@ -6,55 +6,53 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using TrainCrew;
-using System.Net.Sockets; // 使用 UDP_python
-using System.Text;
+using System.Net.Sockets;
 
 namespace TSMasconInput
 {
     public partial class Form1 : Form
     {
-
-        // === 2. 檔位配置 ===
         const int BRAKE_STEPS = 6;
         const bool HAS_EB = true;
         const bool HAS_HOLD = true;
         const int GEAR_N_INDEX = (HAS_EB ? 1 : 0) + BRAKE_STEPS + (HAS_HOLD ? 1 : 0);
 
-        // === 3. TASC/ATO 變數 ===
         Timer tim = new Timer();
         private SimpleTASC tasc;
         private ATOController ato;
 
-        private UdpClient udpClient = new UdpClient(); // UDP 廣播器
-        private UdpClient udpReceiver; // 用來接收來自 Python 訊號的接收器 (監聽 Port 5001)
+        private UdpClient udpClient = new UdpClient();
+        private UdpClient udpReceiver;
 
-        // --- 狀態旗標 ---
-        private bool isTascMasterOn = true;  // 控制：是否執行定點停車
-        private bool isAtoMasterOn = true;   // 控制：是否執行自動加速
-        private bool isAtcMasterOn = true;  // 控制：ATC
+        private bool isTascMasterOn = true;
+        private bool isAtoMasterOn = true;
+        private bool isAtcMasterOn = true;
 
-        private bool isAtoDepartRequest = false; // 追蹤是否按下了發車鈕
+        private bool isAtoDepartRequest = false;
 
         private enum TascBehaviorState { Idle, Braking, Holding }
         private TascBehaviorState currentTascBehavior = TascBehaviorState.Idle;
         private int tascStationNotch = 0;
         private int atoRunningNotch = 0;
 
-        // === 4. 其他變數 ===
-        // 新增一個 Queue 來儲存過去 0.5 秒的速度紀錄
-        private Queue<Tuple<DateTime, double>> speedHistory = new Queue<Tuple<DateTime, double>>();
+        // 新增一個 struct 來避免 Heap Allocation
+        private struct SpeedRecord
+        {
+            public DateTime Time;
+            public double Speed;
+        }
+
+        // 修改 Queue 的型別為 SpeedRecord
+        private Queue<SpeedRecord> speedHistory = new Queue<SpeedRecord>();
         private double _currentAccel = 0.0;
 
-        // UI 更新計數器 (降頻用)
         private int uiUpdateCounter = 0;
-        //private SpeedMoniter speedMoniterWindow;
 
-        // 參數常數
         private const double MY_MAX_BRAKE_DECEL_KMPHPS = 3.7;
         private const int MY_BRAKE_NOTCHES = 6;
         private const double TASC_ACTIVATION_DISTANCE_M = 800.0;
         private const double TASC_STOP_MARGIN_M = 0.18;
-        private const double TASC_STOP_ADJUST_M = 0.15; // ★ 關鍵的停車位置補償
+        private const double TASC_STOP_ADJUST_M = 0.15;
 
         public Form1()
         {
@@ -63,11 +61,9 @@ namespace TSMasconInput
             FormClosed += Form1_FormClosed;
             this.TopMost = true;
 
-            //currentEsp32Notch = GEAR_N_INDEX;
             tasc = new SimpleTASC(MY_MAX_BRAKE_DECEL_KMPHPS, MY_BRAKE_NOTCHES);
             ato = new ATOController();
 
-            // --- 既有按鈕初始化 ---
             btn_tasc_toggle.Text = "TASC: ON";
             btn_tasc_toggle.BackColor = Color.LawnGreen;
             labelTascStatus.Text = "TASC: Armed";
@@ -82,16 +78,13 @@ namespace TSMasconInput
             btn_depart.Enabled = false;
             btn_depart.BackColor = SystemColors.Control;
 
-            // Timer 設定
             tim.Tick += Tim_Tick;
             tim.Interval = 15;
             tim.Start();
 
-            // 啟動 UDP 接收器
             StartUdpReceiver();
         }
 
-        // === ATO 按鈕事件 ===
         private void Btn_ato_toggle_Click(object sender, EventArgs e)
         {
             isAtoMasterOn = !isAtoMasterOn;
@@ -100,7 +93,6 @@ namespace TSMasconInput
                 btn_ato_toggle.Text = "ATO: ON";
                 btn_ato_toggle.BackColor = Color.Cyan;
 
-                // [連動] 當 ATO 開啟時，強制開啟 TASC
                 if (!isTascMasterOn)
                 {
                     isTascMasterOn = true;
@@ -108,7 +100,6 @@ namespace TSMasconInput
                     btn_tasc_toggle.BackColor = Color.LawnGreen;
                 }
 
-                // [連動] 當 ATO 開啟時，強制開啟 ATC
                 if (!isAtcMasterOn)
                 {
                     isAtcMasterOn = true;
@@ -168,9 +159,7 @@ namespace TSMasconInput
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
         {
             TrainCrewInput.Dispose();
-            // 關閉 UDP
             if (udpClient != null) { udpClient.Close(); }
-            // 關閉 UDP 接收器
             if (udpReceiver != null) { udpReceiver.Close(); }
         }
 
@@ -182,11 +171,13 @@ namespace TSMasconInput
             var state = TrainCrewInput.GetTrainState();
             if (state == null) return;
 
-            // 1. 加速度計算
-            speedHistory.Enqueue(new Tuple<DateTime, double>(DateTime.Now, state.Speed));
+            DateTime currentTime = DateTime.Now;
+
+            // 1. 加速度計算 (使用 struct 避免 GC Allocation)
+            speedHistory.Enqueue(new SpeedRecord { Time = currentTime, Speed = state.Speed });
 
             // 清除超過 0.5 秒前的舊資料
-            while (speedHistory.Count > 0 && (DateTime.Now - speedHistory.Peek().Item1).TotalSeconds > 0.5)
+            while (speedHistory.Count > 0 && (currentTime - speedHistory.Peek().Time).TotalSeconds > 0.5)
             {
                 speedHistory.Dequeue();
             }
@@ -195,24 +186,20 @@ namespace TSMasconInput
             if (speedHistory.Count > 1)
             {
                 var oldest = speedHistory.Peek();
-                double tDelta = (DateTime.Now - oldest.Item1).TotalSeconds;
+                double tDelta = (currentTime - oldest.Time).TotalSeconds;
 
                 if (tDelta > 0)
                 {
-                    // 加速度 = (現在速度 - 0.5秒前的速度) / 經過時間
-                    _currentAccel = (state.Speed - oldest.Item2) / tDelta;
+                    _currentAccel = (state.Speed - oldest.Speed) / tDelta;
                 }
             }
 
             double currentSpeed = state.Speed;
-            // ★ 計算包含補償的停車距離 (這是解決停車偏差的關鍵)
             double distanceToStop = state.nextStaDistance + TASC_STOP_ADJUST_M;
             double currentGrade = state.gradient;
             int manualPowerNotch = state.Pnotch;
 
-            // UI 邏輯，動態限速計算
             float fStopPositionOffset = TASCUtils.GetStopPositionOffset(state);
-            // 這裡也建議使用補償後的距離來計算 UI，不過原版似乎是用 nextStaDistance，維持原樣避免 UI 混亂
             float remainigDistance = state.nextStaDistance;
             float dist = remainigDistance > 0.0f ? remainigDistance : 0.0f;
             float xmlLimitSpeed = 0.0f;
@@ -244,7 +231,6 @@ namespace TSMasconInput
                 finalAtcNotch = tasc.GetAtoNotchForATC(state, currentSpeed, limitToShow, currentGrade, state.Pnotch);
             }
 
-            // 發車按鈕狀態管理
             if (isAtoMasterOn)
             {
                 if (currentSpeed > 1.0)
@@ -261,21 +247,15 @@ namespace TSMasconInput
                 isAtoDepartRequest = false;
             }
 
-            
-
-            // 狀態機 (TASC)
             bool manualPowerOverride = (manualPowerNotch > 0);
             switch (currentTascBehavior)
             {
                 case TascBehaviorState.Idle:
                     bool isPassThrough = (state.nextStopType == "通過");
 
-                    // ★ 修正重點：恢復「以距離為準」的判斷 (解決藍色三角形消失問題)
-                    // 只要進入距離範圍，強制切換到 Braking 狀態，這樣藍色三角形就會顯示
                     if (distanceToStop > TASC_STOP_MARGIN_M && distanceToStop <= TASC_ACTIVATION_DISTANCE_M && !isPassThrough)
                     {
                         SetTascBehavior(TascBehaviorState.Braking);
-                        //tascStationNotch = atoRecommendedNotch;
                     }
                     break;
 
@@ -308,37 +288,30 @@ namespace TSMasconInput
             }
             float tascExpectedSpeed = (currentTascBehavior == TascBehaviorState.Braking) ? (float)tasc.LastExpectedSpeedKmph : -1f;
 
-            // ATO 邏輯整合
             bool doorsClosed = state.Lamps[PanelLamp.DoorClose];
             bool allowAccel = isAtoMasterOn && (currentSpeed > 0.5 || isAtoDepartRequest) && doorsClosed;
             int atoRecommendedNotch = ato.Update(state, (float)currentSpeed, (float)currentGrade, (float)distanceToStop, limitToShow,
                 isTascMasterOn, allowAccel, tascExpectedSpeed, finalAtcNotch);
             atoRunningNotch = atoRecommendedNotch;
 
-            // 根據開關狀態，決定是否採用 TASC 的煞車指令
             int effectiveTascNotch = isTascMasterOn ? tascStationNotch : 0;
 
-            // 輸出檔位
             int finalOutputNotch = 0;
             if (effectiveTascNotch < 0 || finalAtcNotch < 0)
             {
-                // TASC 或是 ATC 要求煞車
                 finalOutputNotch = Math.Min(effectiveTascNotch, finalAtcNotch);
             }
             else if (isAtoMasterOn)
             {
-                // TASC 或是 ATC  沒有動作，交給 ATO 控制加速或下坡保護
                 finalOutputNotch = atoRecommendedNotch;
             }
             else
             {
-                // 兩者都沒開或沒有動作，維持 N 檔
                 finalOutputNotch = 0;
             }
 
             TrainCrewInput.SetATO_Notch(finalOutputNotch);
 
-            // UI 更新
             uiUpdateCounter++;
             if (uiUpdateCounter >= 5)
             {
@@ -357,102 +330,71 @@ namespace TSMasconInput
                     else if (isXmlValid) rawNextLimit = xmlLimitSpeed;
                     else if (isGameValid) rawNextLimit = state.nextSpeedLimit;
                 }
-                bool showWarning = (dynamicSpeedTarget_Reason == "NextGame" || dynamicSpeedTarget_Reason == "NextXml");
 
-                // ★ 新增：發送 UDP 資料給 Python 儀表板 ★
                 try
                 {
-                    // 1. 取得計算好的各項速度標記數值
-                    // 取得計算好的各項數值 (如果沒有數值，我們用 -1 代表)
                     float udpcurrentSpeed = (float)state.Speed;
                     float tascBlueLimit = (currentTascBehavior == TascBehaviorState.Braking) ? tascExpectedSpeed : -1f;
-
-                    // rawNextLimit 在上面你已經算好了，代表綠色的前方預告限速
                     float greenNextLimit = rawNextLimit;
-
-                    // gaugeTargetValue 代表紅色的當前限速
                     float redCurrentLimit = gaugeTargetValue;
 
-                    // === 2. 計算目前玩家的「手動檔位」數值 (-8 ~ 5) ===
                     int manualNotch = 0;
                     if (state.Bnotch > 0)
                     {
-                        // Bnotch 對應: 8=非常(-8), 2=B1(-2), 1=抑速(-1)
                         manualNotch = -state.Bnotch;
                     }
                     else if (state.Pnotch > 0)
                     {
-                        // Pnotch 對應: 1=P1(1) ~ 5=P5(5)
                         manualNotch = state.Pnotch;
                     }
 
-                    // === 3. 根據遊戲規則，計算「最終實際作用 (Effective)」的檔位 ===
-                    // finalOutputNotch 是你的 ATO/TASC 算出來要給電腦輸出的檔位
                     int effectiveNotch = 0;
-
                     if (finalOutputNotch > 0)
                     {
-                        // ATO 出力 (Powering)
-                        // 規則：只有在手動檔位置於 N 檔時，ATO 的出力才會生效
                         if (manualNotch == 0)
-                        {
                             effectiveNotch = finalOutputNotch;
-                        }
                         else
-                        {
                             effectiveNotch = manualNotch;
-                        }
                     }
                     else if (finalOutputNotch < 0)
                     {
-                        // ATO 煞車 (Braking)
-                        // 規則：套用手動與 ATO 之中「煞車力道較大」的那一個
-                        // 由於煞車是以負數表示 (-8 最強，-1 最弱)，數值越小代表煞車越強，因此使用 Math.Min
                         effectiveNotch = Math.Min(manualNotch, finalOutputNotch);
                     }
                     else
                     {
-                        // ATO 為 N 檔 (0) 時，完全聽從玩家手動把手
                         effectiveNotch = manualNotch;
                     }
 
-                    // === 4. 將計算出的數值，轉換為 Python 儀表板認得的字串 ===
                     string appliedNotchStr = "N";
-                    if (effectiveNotch == -8)
-                        appliedNotchStr = "非常";
-                    else if (effectiveNotch <= -2)
-                        appliedNotchStr = "B" + (-effectiveNotch - 1);
-                    else if (effectiveNotch == -1)
-                        appliedNotchStr = "抑速";
-                    else if (effectiveNotch > 0)
-                        appliedNotchStr = "P" + effectiveNotch;
+                    if (effectiveNotch == -8) appliedNotchStr = "非常";
+                    else if (effectiveNotch <= -2) appliedNotchStr = "B" + (-effectiveNotch - 1);
+                    else if (effectiveNotch == -1) appliedNotchStr = "抑速";
+                    else if (effectiveNotch > 0) appliedNotchStr = "P" + effectiveNotch;
 
-                    // 計算按鈕狀態碼 (0=禁用/暗灰, 1=可按/淺灰, 2=已按下/黃色)
                     int departStateCode = 0;
                     if (!btn_depart.Enabled) departStateCode = 0;
                     else if (isAtoDepartRequest) departStateCode = 2;
                     else departStateCode = 1;
 
-                    // 格式化為字串："速度,藍色TASC,綠色預告,紅色限速" (例如："120.5,-1,60,110")
                     string udpMsg = $"{udpcurrentSpeed:F1}," +
                         $"{tascBlueLimit:F1}," +
                         $"{greenNextLimit:F1}," +
                         $"{redCurrentLimit:F1}," +
                         $"{appliedNotchStr}," +
                         $"{_currentAccel:F2}," +
-                        $"{currentGrade:F1}," +     // 第 7 項：坡度
-                        $"{state.CarStates[0].BC_Press.ToString("0"):F1}," +          // 第 8 項：BC
+                        $"{currentGrade:F1}," +
+                        $"{state.CarStates[0].BC_Press.ToString("0"):F1}," +
                         $"{state.CarStates[1].BC_Press.ToString("0"):F1}," +
-                        $"{state.MR_Press.ToString("0"):F1}," +     // 第 10 項：MR
+                        $"{state.MR_Press.ToString("0"):F1}," +
                         $"{state.CarStates[0].Ampare.ToString("0"):F1}," +
                         $"{state.CarStates[1].Ampare.ToString("0"):F1}," +
-                        $"{departStateCode}";            
+                        $"{departStateCode}";
 
                     byte[] sendBytes = Encoding.UTF8.GetBytes(udpMsg);
-                    // 傳送到本機的 5000 埠號
-                    udpClient.Send(sendBytes, sendBytes.Length, "127.0.0.1", 5000);
+                    // 傳送到本機的 5000 埠號 (改用 SendAsync)
+                    udpClient.SendAsync(sendBytes, sendBytes.Length, "127.0.0.1", 5000);
                 }
-                catch { }
+                catch (Exception ex) { Console.WriteLine("UDP 發送錯誤: " + ex.Message); }
             }
         }
 
@@ -460,22 +402,16 @@ namespace TSMasconInput
         {
             try
             {
-                // 綁定 Port 5001 進行監聽 (需與 Python 設定的 target_address 一致)
                 udpReceiver = new UdpClient(5001);
-
                 while (true)
                 {
-                    // 非同步等待接收封包，不會卡死 UI
                     UdpReceiveResult result = await udpReceiver.ReceiveAsync();
                     string message = Encoding.UTF8.GetString(result.Buffer);
 
-                    // 如果收到的字串是 "DEPART"
                     if (message == "DEPART")
                     {
-                        // 因為 UDP 接收是在背景執行緒，要修改 UI 與主程式狀態必須透過 Invoke 切回主執行緒
                         this.Invoke(new Action(() =>
                         {
-                            // 執行與按下 C# 實體按鈕相同的邏輯
                             if (isAtoMasterOn)
                             {
                                 isAtoDepartRequest = true;
@@ -486,14 +422,8 @@ namespace TSMasconInput
                     }
                 }
             }
-            catch (ObjectDisposedException)
-            {
-                // 當程式關閉，udpReceiver 被 Close() 時會觸發此例外，正常忽略即可
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("UDP 接收發生錯誤: " + ex.Message);
-            }
+            catch (ObjectDisposedException) { }
+            catch (Exception ex) { Console.WriteLine("UDP 接收發生錯誤: " + ex.Message); }
         }
 
         private void UpdateUI(TrainState state, float limitToShow, string dynamicSpeedTarget_Reason, int finalOutputNotch, int effectiveTascNotch, int effectiveAtcNotch, float safeSpeedNextGame, float safeSpeedNextXml, float xmlLimitSpeed, float xmlLimitDistance, float gaugeTargetValue)
@@ -506,7 +436,7 @@ namespace TSMasconInput
 
                 float rawNextLimit = -1f;
                 if (dynamicSpeedTarget_Reason == "NextGame") rawNextLimit = state.nextSpeedLimit;
-                else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed; 
+                else if (dynamicSpeedTarget_Reason == "NextXml") rawNextLimit = xmlLimitSpeed;
                 else
                 {
                     bool isXmlValid = (xmlLimitSpeed > 0 && xmlLimitSpeed < 120f && xmlLimitDistance > 0);
@@ -521,7 +451,7 @@ namespace TSMasconInput
                 this.speedGauge.TargetValue3Color = Color.Red;
                 this.speedGauge.Value2 = -1;
             }
-            catch { }
+            catch (Exception ex) { Console.WriteLine("UI Error - Gauge Update: " + ex.Message); }
 
             try
             {
@@ -529,7 +459,7 @@ namespace TSMasconInput
                 this.pressureGauge.Value2 = state.MR_Press;
                 this.pressureGauge.TargetValue = -1; this.pressureGauge.TargetValue2 = -1; this.pressureGauge.TargetValue3 = -1;
             }
-            catch { }
+            catch (Exception ex) { Console.WriteLine("UI Error - Pressure: " + ex.Message); }
 
             try
             {
@@ -555,7 +485,7 @@ namespace TSMasconInput
                 }
                 label1.Text = sb.ToString();
             }
-            catch { label1.Text = "Info Error"; }
+            catch (Exception ex) { label1.Text = "Info Error"; Console.WriteLine("UI Error - Info: " + ex.Message); }
 
             try
             {
@@ -579,17 +509,17 @@ namespace TSMasconInput
 
                 sb.AppendLine("曲線G：" + (safeSpeedNextGame < 999 ? safeSpeedNextGame.ToString("0.0") : "---"));
                 sb.AppendLine("曲線X：" + (safeSpeedNextXml < 999 ? safeSpeedNextXml.ToString("0.0") : "---"));
-                sb.AppendLine((state.Lamps[PanelLamp.DoorClose] ? "●" : "○") + "戶　閉");
+                sb.AppendLine((state.Lamps[PanelLamp.DoorClose] ? "●" : "○") + "戶 閉");
                 sb.AppendLine((state.Lamps[PanelLamp.ATS_Ready] ? "●" : "○") + "ATS正常");
                 sb.AppendLine((state.Lamps[PanelLamp.ATS_BrakeApply] ? "●" : "○") + "ATS動作");
                 sb.AppendLine((state.Lamps[PanelLamp.ATS_Open] ? "●" : "○") + "ATS開放");
-                sb.AppendLine((state.Lamps[PanelLamp.RegenerativeBrake] ? "●" : "○") + "回　生");
-                sb.AppendLine((state.Lamps[PanelLamp.EB_Timer] ? "●" : "○") + "E　B");
+                sb.AppendLine((state.Lamps[PanelLamp.RegenerativeBrake] ? "●" : "○") + "回 生");
+                sb.AppendLine((state.Lamps[PanelLamp.EB_Timer] ? "●" : "○") + "E B");
                 sb.AppendLine((state.Lamps[PanelLamp.EmagencyBrake] ? "●" : "○") + "非常ﾌﾞﾚｰｷ");
                 sb.AppendLine((state.Lamps[PanelLamp.Overload] ? "●" : "○") + "過負荷");
                 labelPnl.Text = sb.ToString();
             }
-            catch { labelPnl.Text = "Panel Error"; }
+            catch (Exception ex) { labelPnl.Text = "Panel Error"; Console.WriteLine("UI Error - Panel: " + ex.Message); }
 
             try
             {
@@ -606,7 +536,7 @@ namespace TSMasconInput
                 }
                 labelATS.Text = sb.ToString();
             }
-            catch { labelATS.Text = "ATS Error"; }
+            catch (Exception ex) { labelATS.Text = "ATS Error"; Console.WriteLine("UI Error - ATS: " + ex.Message); }
 
             try
             {
@@ -619,17 +549,17 @@ namespace TSMasconInput
                     {
                         if (state.nextStaName == state.stationList[i].Name)
                         {
-                            sb.AppendLine("誤　　差：" + (state.stationList[i].ArvTime - state.NowTime));
+                            sb.AppendLine("誤  差：" + (state.stationList[i].ArvTime - state.NowTime));
                             sb.AppendLine(state.stationList[i].Name + ":" + state.stationList[i].ArvTime + " " + state.stationList[i].stopType);
                         }
                     }
                 }
                 sb.AppendLine("列車編號：" + state.diaName + GetDirection(state));
-                sb.AppendLine("種　　別：" + state.Class);
-                sb.AppendLine("行　　先：" + state.BoundFor);
+                sb.AppendLine("種  別：" + state.Class);
+                sb.AppendLine("行  先：" + state.BoundFor);
                 label2.Text = sb.ToString();
             }
-            catch { label2.Text = "Drive Info Error"; }
+            catch (Exception ex) { label2.Text = "Drive Info Error"; Console.WriteLine("UI Error - Drive Info: " + ex.Message); }
 
             try
             {
@@ -650,13 +580,12 @@ namespace TSMasconInput
                     label.Visible = true;
                 }
             }
-            catch { }
+            catch (Exception ex) { Console.WriteLine("UI Error - Limit Label: " + ex.Message); }
 
             try
             {
                 string atoLabel = "ATO:";
 
-                // 判斷最終輸出的來源標籤 (邏輯保持不變，用於顯示 OUT)
                 if (effectiveTascNotch < 0 && effectiveTascNotch < effectiveAtcNotch)
                 {
                     atoLabel = "TASC:";
@@ -668,22 +597,17 @@ namespace TSMasconInput
 
                 sb.Clear();
 
-                // === 修改開始：顯示詳細的除錯資訊 ===
-                // 格式：ATO:P5 ATC:N TASC:B2
-                // 這樣你可以一眼看出三者目前的狀態
                 sb.Append("ATO:" + ConvertNotchToString(atoRunningNotch) + " ");
                 sb.Append("ATC:" + ConvertNotchToString(effectiveAtcNotch) + " ");
                 sb.Append("TASC:" + ConvertNotchToString(effectiveTascNotch) + " ");
 
-                // 顯示最終輸出 (Winner)
                 sb.AppendLine(atoLabel + ConvertNotchToString(finalOutputNotch));
                 sb.AppendLine("Notch:" + CalNotch(state.Pnotch, state.Bnotch));
-                //sb.AppendLine("Handle:" + ConvertNotchToString(currentEsp32Notch));
                 labelNotch.Text = sb.ToString();
             }
-            catch { }
+            catch (Exception ex) { Console.WriteLine("UI Error - Notch Label: " + ex.Message); }
         }
- 
+
         private string ConvertNotchToString(int notch)
         {
             if (notch == -8) return "EB";

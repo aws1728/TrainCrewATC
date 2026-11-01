@@ -16,27 +16,12 @@ namespace TSMasconInput
     public static class TASCUtils
     {
         // 建立一個簡單的 Data 工具
-        /// <summary>
-        /// データクラス
-        /// </summary>
         private static readonly Data data = new Data();
-
-        /// <summary>
-        /// Xml 速度制限情報
-        /// </summary>
         private static readonly List<SpeedLimitClass> SpeedLimitList;
-
-        /// <summary>
-        /// Xml 停止位置オフセット情報
-        /// </summary>
         private static readonly List<StopPositionOffsetClass> StopPositionOffsetList;
 
-        /// <summary>
-        /// 靜態コンストラクタ（ゲーム起動時に1回だけ実行）
-        /// </summary>
         static TASCUtils()
         {
-            // Xmlファイル読み込み（只讀一次，超快！）
             SpeedLimitList = LoadXmlData("TSMasconInput.libraries.Xml.SpeedLimit.xml", element => new SpeedLimitClass
             {
                 Direction = element.Element("Direction")?.Value ?? "",
@@ -63,27 +48,17 @@ namespace TSMasconInput
             });
         }
 
-        /// <summary>
-        /// XmlData読み込みメソッド
-        /// </summary>
-        /// 改寫讀取方法，從 Assembly 讀取 Stream
         public static List<T> LoadXmlData<T>(string resourceName, Func<XElement, T> selector)
         {
             try
             {
                 var assembly = Assembly.GetExecutingAssembly();
-
-                // 除錯小技巧：如果你發現讀不到，可以取消下面這行的註解，看看所有資源名稱是什麼
-                // string[] names = assembly.GetManifestResourceNames(); 
-
                 using (Stream stream = assembly.GetManifestResourceStream(resourceName))
                 {
                     if (stream == null)
                     {
-                        // 找不到資源時，回傳空列表，避免當機
                         return new List<T>();
                     }
-
                     return XElement.Load(stream).Elements().Select(selector).ToList();
                 }
             }
@@ -93,14 +68,9 @@ namespace TSMasconInput
             }
         }
 
-        /// <summary>
-        /// 停止位置オフセット取得メソッド
-        /// </summary>
-        /// <param name="_state">列車の状態</param>
-        /// <returns></returns>
         public static float GetStopPositionOffset(TrainState _state)
         {
-            string direction = "下り"; // 預設值，防止未載入時當機
+            string direction = "下り";
             if (!string.IsNullOrEmpty(_state.diaName))
             {
                 var match = System.Text.RegularExpressions.Regex.Match(_state.diaName, @"\d+");
@@ -115,29 +85,36 @@ namespace TSMasconInput
 
             try
             {
-                var str = StopPositionOffsetList
-                    .Where(s => s.Direction == direction)
-                    .Where(s => s.StationName == _state.nextStaName)
-                    .Select(s => s.Offset[Math.Min(_state.CarStates.Count - 1, s.Offset.Count - 1)])
-                    .FirstOrDefault();
-
-                //一致したデータがあれば取得（停車する場合のみ）
-                if (str > 0.0f && _state.nextStopType.Contains("停車"))
-                    offset = str;
+                if (_state.nextStopType.Contains("停車"))
+                {
+                    // 改用 foreach 避免 GC Allocation
+                    foreach (var s in StopPositionOffsetList)
+                    {
+                        if (s.Direction == direction && s.StationName == _state.nextStaName)
+                        {
+                            int offsetIndex = Math.Min(_state.CarStates.Count - 1, s.Offset.Count - 1);
+                            if (offsetIndex >= 0)
+                            {
+                                float val = s.Offset[offsetIndex];
+                                if (val > 0.0f)
+                                {
+                                    offset = val;
+                                }
+                            }
+                            break; // 找到對應車站即跳出
+                        }
+                    }
+                }
             }
-            catch { }
+            catch (Exception ex) { Console.WriteLine("GetStopPositionOffset Error: " + ex.Message); }
 
             return offset;
         }
 
-        /// <summary>
-        /// 【純粹】取得目前位置前方「XML 自訂的限速」與剩餘距離
-        /// 不與遊戲系統比對，由主程式自行決定最終採用哪一個
-        /// </summary>
         public static void GetLimitSpeed(TrainState _state, float distance, float offset,
             out float xmlLimitSpeed, out float xmlLimitDistance)
         {
-            string direction = "下り"; // 預設值，防止未載入時當機
+            string direction = "下り";
             if (!string.IsNullOrEmpty(_state.diaName))
             {
                 var match = System.Text.RegularExpressions.Regex.Match(_state.diaName, @"\d+");
@@ -150,81 +127,61 @@ namespace TSMasconInput
             int nowStaIndex = _state.nowStaIndex;
             float dist = (distance < 0.0f) ? 0.0f : distance;
 
-            // 預設值：沒抓到任何 XML 限速時
             xmlLimitSpeed = 120.0f;
             xmlLimitDistance = 0.0f;
-
-            // 定義您想提早多少公尺抓取 (例如提早 600m)
             float lookahead = 300.0f;
 
             try
             {
-                var str = SpeedLimitList
-                    .Where(s => s.Direction == direction)
-                    // 判斷車站區間 (保持不變)
-                    .Where(s => s.BackStopPosName == _state.stationList[backStaIndex].StopPosName ||
-                                s.NextStopPosName == _state.stationList[nowStaIndex].StopPosName)
+                SpeedLimitClass bestMatch = null;
+                string backStopPosName = _state.stationList[backStaIndex].StopPosName;
+                string nextStopPosName = _state.stationList[nowStaIndex].StopPosName;
 
-                    // 【關鍵修改】
-                    // 原始: (s.StartPos - offset) > dist
-                    // 修改: 加上 lookahead，讓我們能看見前方未到達的起點
-                    .Where(s => (s.StartPos - offset + lookahead) > dist && dist >= (s.EndPos - offset))
-
-                    // 【建議新增】排序
-                    // 因為提早抓取可能會同時抓到多個限速，我們應該優先取「最近的一個」(StartPos 最大的)
-                    .OrderByDescending(s => s.StartPos)
-                    .FirstOrDefault();
-
-                if (str != null)
+                // 改用 foreach 取代 Where 與 OrderByDescending
+                foreach (var s in SpeedLimitList)
                 {
-                    xmlLimitSpeed = str.Limit;
-                    // 計算剩餘距離 (這會是「目前位置」到「限速結束點 EndPos」的距離)
-                    float endPosAdjusted = (str.EndPos - offset) > 0.0f ? (str.EndPos - offset) : 0.0f;
+                    if (s.Direction != direction) continue;
+                    if (s.BackStopPosName != backStopPosName && s.NextStopPosName != nextStopPosName) continue;
+
+                    if ((s.StartPos - offset + lookahead) > dist && dist >= (s.EndPos - offset))
+                    {
+                        if (bestMatch == null || s.StartPos > bestMatch.StartPos)
+                        {
+                            bestMatch = s;
+                        }
+                    }
+                }
+
+                if (bestMatch != null)
+                {
+                    xmlLimitSpeed = bestMatch.Limit;
+                    float endPosAdjusted = (bestMatch.EndPos - offset) > 0.0f ? (bestMatch.EndPos - offset) : 0.0f;
                     xmlLimitDistance = (dist - endPosAdjusted) > 0.0f ? (dist - endPosAdjusted) : 0.0f;
                 }
-                else
-                {
-                    xmlLimitSpeed = 120.0f;
-                    xmlLimitDistance = 0.0f;
-                }
             }
-            catch
+            catch (Exception ex)
             {
+                Console.WriteLine("GetLimitSpeed Error: " + ex.Message);
                 xmlLimitSpeed = 120.0f;
                 xmlLimitDistance = 0.0f;
             }
         }
     }
 
-    /// <summary>
-    /// 速度制限クラス
-    /// </summary>
     public class SpeedLimitClass
     {
-        /// <summary>上下</summary>
         public string Direction { get; set; } = "";
-        /// <summary>開始位置(m)</summary>
         public float StartPos { get; set; }
-        /// <summary>終了位置(m)</summary>
         public float EndPos { get; set; }
-        /// <summary>制限速度(km/h)</summary>
         public float Limit { get; set; }
-        /// <summary>前の停止位置名</summary>
         public string BackStopPosName { get; set; } = "";
-        /// <summary>次の停止位置名</summary>
         public string NextStopPosName { get; set; } = "";
     }
 
-    /// <summary>
-    /// 停止位置オフセットクラス
-    /// </summary>
     public class StopPositionOffsetClass
     {
-        /// <summary>上下</summary>
         public string Direction { get; set; } = "";
-        /// <summary>駅名</summary>
         public string StationName { get; set; } = "";
-        /// <summary>オフセット[m]</summary>
         public List<float> Offset { get; set; } = new List<float>();
     }
 }
